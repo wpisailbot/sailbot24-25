@@ -18,6 +18,7 @@ import json
 import traceback
 import serial.tools.list_ports
 import subprocess
+import can  # pip install python-can
 
 serial_port = '/dev/ttyTHS1'
 baud_rate = 115200 
@@ -172,11 +173,11 @@ class ESPComms(LifecycleNode):
                 10
             )
         
-        self.roll_subscription = self.create_subscription(Float64, '/airmar_data/roll',self.roll_callback, 10)
+        #self.roll_subscription = self.create_subscription(Float64, '/airmar_data/roll',self.roll_callback, 10)
         self.speed_subscription = self.create_subscription(Float64, '/airmar_data/speed_knots',self.speed_callback, 10)
 
         
-        self.damper_check_timer = self.create_timer(0.5,self.damper_check_callback)
+        # self.damper_check_timer = self.create_timer(0.5,self.damper_check_callback)
 
         #reset ESP32 in case it stopped working from brownout
         esp32_ports = find_esp32_serial_ports()
@@ -210,7 +211,7 @@ class ESPComms(LifecycleNode):
         self.tt_angle_subscriber = self.create_subscription(Int16, 'tt_angle', self.tt_angle_callback, 10)
 
         self.rudder_angle_subscriber = self.create_subscription(Int16, 'rudder_angle', self.rudder_angle_callback, 10)
-        self.ballast_pwm_subscriber = self.create_subscription(Int16, 'ballast_pwm', self.ballast_pwm_callback, 10)
+        # self.ballast_pwm_subscriber = self.create_subscription(Int16, 'ballast_pwm', self.ballast_pwm_callback, 10)
 
         self.apparent_wind_subscriber = self.create_subscription(Wind, 'apparent_wind_smoothed', self.apparent_wind_callback, 10)
 
@@ -235,7 +236,7 @@ class ESPComms(LifecycleNode):
 
         self.timer_pub = self.create_lifecycle_publisher(Empty, '/heartbeat/trim_tab_comms', 1)
         
-        self.ballast_timer = self.create_timer(0.01, self.ballast_timer_callback)
+        # self.ballast_timer = self.create_timer(0.01, self.ballast_timer_callback)
 
         try:
             self.ser = serial.Serial(serial_port, baud_rate, timeout=0.05)
@@ -617,7 +618,7 @@ class ESPComms(LifecycleNode):
         }
         message_string = json.dumps(message)+'\n'
         self.ser.write(message_string.encode())
-
+    '''
     def damper_check_callback(self):
         """Check if damper should activate based on IMU data"""
         if self.speed > 10.0:
@@ -705,20 +706,25 @@ class ESPComms(LifecycleNode):
             if should_activate != self.damper_active:
                 self.damper_active = should_activate
                 self.send_damper_can_command(should_activate)
-
+    '''
     def send_damper_can_command():
         return
     
     def speed_callback(self, msg: Float64):
         self.speed = msg.data
-    
+    '''
     def roll_callback(self, msg: Float64) -> None:
-        msg = {
+        self.get_logger().info(f"Got roll: {msg.data}")
+        roll_dict = {
                 "roll": msg.data
         }
-        message_string = json.dumps(msg)+'\n'
+        message_string = json.dumps(roll_dict)+'\n'
         self.ser.write(message_string.encode())
-    
+
+        # # Store roll readings for damper control
+        # current_time = get_time()
+        # self.last_roll_readings.append((current_time, msg.data))
+    '''
     def request_tack_timer_callback(self):
         self.request_tack_override = False
         self.get_logger().info('Tack timer expired.')
