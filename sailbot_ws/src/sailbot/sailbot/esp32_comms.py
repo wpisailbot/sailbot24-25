@@ -19,7 +19,7 @@ import traceback
 import serial.tools.list_ports
 import subprocess
 
-serial_port = '/dev/ttyTHS0'
+serial_port = '/dev/ttyTHS1'
 baud_rate = 115200 
 
 # Local variables
