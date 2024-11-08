@@ -98,7 +98,7 @@ std::vector<MapNode*> AStarPathfindingStrategy::AStar(Map& map, MapNode* start, 
 	return std::vector<MapNode*>(); // Return an empty path if no path is found
 }
 
-std::vector<std::pair<double, double>> AStarPathfindingStrategy::solve(Map& map, MapNode* start, MapNode* goal, double wind_angle_rad, double no_go_angle_rad) {
+std::vector<std::pair<double, double>> AStarPathfindingStrategy::solve(Map& map, MapNode* start, MapNode* goal, double wind_angle_rad, double no_go_angle_rad, double current_yaw_deg) {
 	//rotate map to enable wind restriction
 	double map_angle_rad = wind_angle_rad - M_PI / 2;
 	double map_angle_deg = map_angle_rad * (180 / M_PI);

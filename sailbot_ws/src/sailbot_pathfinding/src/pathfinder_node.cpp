@@ -73,7 +73,8 @@ public:
             RCLCPP_WARN(this->get_logger(), "Cells out of map bounds!");
             return;
         }
-        auto path = find_solution(*pMap, request->wind_angle_deg, std::make_pair(x1f, y1f), std::make_pair(x2f, y2f), request->pathfinding_strategy);
+        RCLCPP_INFO(this->get_logger(), "Passed current heading: %f", request->current_yaw_deg);
+        auto path = find_solution(*pMap, request->wind_angle_deg, request->current_yaw_deg, std::make_pair(x1f, y1f), std::make_pair(x2f, y2f), request->pathfinding_strategy);
         RCLCPP_INFO(this->get_logger(), "Solution complete");
         for (auto p : path)
         {
@@ -171,7 +172,7 @@ public:
         pMap->apply_threat_mask(threatsMap);
     }
 
-    std::vector<std::pair<double, double>> find_solution(Map &map, double wind_angle_deg, std::pair<double, double> start, std::pair<double, double> goal, uint8_t pathfinding_strategy)
+    std::vector<std::pair<double, double>> find_solution(Map &map, double wind_angle_deg, double current_yaw_deg, std::pair<double, double> start, std::pair<double, double> goal, uint8_t pathfinding_strategy)
     {
         MapNode *start_node = pMap->getMapNode(start.first, start.second);
         MapNode *goal_node = pMap->getMapNode(goal.first, goal.second);
@@ -189,7 +190,7 @@ public:
         cv::imwrite("/home/sailbot/map_with_points.jpg", colorImage);
 
 
-
+        double current_yaw_rad = current_yaw_deg * (M_PI / 180);
         double wind_angle_rad = wind_angle_deg * (M_PI / 180);
         double wind_angle_inverse = std::fmod((wind_angle_rad+M_PI),(M_PI*2));
         double nogo_angle_rad = NOGO_ANGLE_DEGREES * (M_PI / 180);
@@ -228,9 +229,9 @@ public:
 
             std::vector<std::pair<double, double>> path;
             if(blockedUp){
-                path = oneTackSolver.solve(map, &dummyStart, &dummyGoal, wind_angle_rad, nogo_angle_rad);
+                path = oneTackSolver.solve(map, &dummyStart, &dummyGoal, wind_angle_rad, nogo_angle_rad, current_yaw_rad);
             } else if (blockedDown){
-                path = oneTackSolver.solve(map, &dummyStart, &dummyGoal, wind_angle_inverse, downwind_nogo_angle_rad);
+                path = oneTackSolver.solve(map, &dummyStart, &dummyGoal, wind_angle_inverse, downwind_nogo_angle_rad, current_yaw_rad);
             }
             if (path.size() > 0)
             {

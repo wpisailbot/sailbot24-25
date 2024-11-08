@@ -5,7 +5,7 @@ from sensor_msgs.msg import NavSatFix
 from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
 from geographic_msgs.msg import GeoPoint
-from sailbot_msgs.msg import GeoPath, Waypoint, WaypointPath, Wind, GaussianThreat, PathSegment, GeoPathSegment, BuoyDetectionStamped
+from sailbot_msgs.msg import GeoPath, Waypoint, WaypointPath, Wind, GaussianThreat, PathSegment, GeoPathSegment, BuoyDetectionStamped, GeoAndGridPath
 from sailbot_msgs.srv import SetMap, GetPath, SetThreat
 from typing import Optional
 from rclpy.lifecycle import LifecycleNode, LifecycleState, TransitionCallbackReturn
@@ -82,8 +82,7 @@ def find_and_load_image(directory, location):
 
 class PathFollower(LifecycleNode):
     """
-    A ROS2 lifecycle node that manages pathfinding and navigation for the boat. It processes waypoints, handles dynamic path updates,
-    manages threats, and integrates sensor data to navigate efficiently.
+    A ROS2 lifecycle node that manages navigation for the boat. It recieves paths from the path generator and follows them using a vector-field approach
 
     :ivar latitude: Current latitude of the boat.
     :ivar longitude: Current longitude of the boat.
@@ -122,18 +121,10 @@ class PathFollower(LifecycleNode):
     - 'current_path_publisher': Publishes updates to the navigation path as it is recalculated.
     - 'current_grid_cell_publisher': Publishes the current grid cell location of the boat within the navigation map.
 
-    **Services**:
-    
-    - 'set_map_cli', 'get_path_cli', 'set_threat_cli': Service clients for setting the navigation map, retrieving paths, and managing navigation threats.
-
     **Methods**:
 
     - 'set_parameters', 'get_parameters': Methods for declaring and retrieving ROS parameters related to navigation and pathfinding.
-    - 'calculate_exact_points_from_waypoint': Processes waypoints to calculate exact navigation points.
-    - 'recalculate_path_from_exact_points': Recalculates the navigation path based on new or updated exact navigation points.
     - 'find_current_segment': Determines the boat's progress along the path.
-    - 'remove_last_points_if_necessary': Trims unnecessary navigation points if the last waypoint was a rounding type.
-    - 'get_square_corners': Calculates and orders the four corners of a square about a target position, facing a starting position.
 
     **Usage**:
 
@@ -189,7 +180,6 @@ class PathFollower(LifecycleNode):
         self.current_grid_segment_publisher: Optional[Publisher]
         self.current_segment_debug_publisher: Optional[Publisher]
         self.target_position_publisher: Optional[Publisher]
-        self.current_path_publisher: Optional[Publisher]
         self.current_grid_cell_publisher: Optional[Publisher]
 
         self.error_publisher: Optional[Publisher]
@@ -197,6 +187,7 @@ class PathFollower(LifecycleNode):
         self.airmar_heading_subscription: Optional[Subscription]
         self.airmar_position_subscription: Optional[Subscription]
         self.airmar_speed_knots_subscription: Optional[Subscription]
+        self.current_path_subscription: Optional[Subscription]
         self.timer: Optional[Timer]
         
         self.set_parameters()
@@ -240,14 +231,6 @@ class PathFollower(LifecycleNode):
         rclpy.spin_until_future_complete(self, future)
 
         self.get_logger().info("Map setup done")
-
-        self.get_path_cli = self.create_client(GetPath, 'get_path', callback_group=self.service_client_callback_group)
-        while not self.get_path_cli.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info('get_path service not available, waiting again...')
-        
-        self.set_threat_cli = self.create_client(SetThreat, 'set_threat', callback_group=self.service_client_callback_group)
-        while not self.set_threat_cli.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info('set_threat service not available, waiting again...')
         
         self.get_logger().info("Path follower node setup complete")
 
@@ -304,39 +287,19 @@ class PathFollower(LifecycleNode):
                 self.airmar_speed_knots_callback,
                 10,
                 callback_group=self.subscription_callback_group)
-            self.waypoints_subscription = self.create_subscription(
-                WaypointPath, 
-                'waypoints',
-                self.waypoints_callback,
-                10, 
-                callback_group=self.subscription_callback_group)
-            self.single_waypoint_subscription = self.create_subscription(
-                Waypoint, 
-                'single_waypoint',
-                self.single_waypoint_callback,
-                10, 
-                callback_group=self.subscription_callback_group)
             self.true_wind_subscription = self.create_subscription(
                 Wind,
                 'true_wind_smoothed',
                 self.true_wind_callback,
                 10,
                 callback_group=self.subscription_callback_group)
-            self.buoy_position_subscription = self.create_subscription(
-                BuoyDetectionStamped,
-                'buoy_position',
-                self.buoy_position_callback,
+            self.current_path_subscription = self.create_subscription(
+                GeoAndGridPath,
+                "current_combined_path",
+                self.current_path_callback,
                 10,
-                callback_group = self.subscription_callback_group)
+            )
             
-            self.request_replan_subscription = self.create_subscription(
-                Empty,
-                'request_replan',
-                self.request_replan_callback,
-                10,
-                callback_group = self.subscription_callback_group)
-            
-            self.buoy_cleanup_timer = self.create_timer(1.0, self.remove_old_buoys)
             #self.tempt_test_timer = self.create_timer(6.0, self.set_waypoints)
 
             self.made_waypoints = False
@@ -387,25 +350,7 @@ class PathFollower(LifecycleNode):
         self.latitude = msg.latitude
         self.longitude = msg.longitude
         new_grid_cell = self.latlong_to_grid_proj(self.latitude, self.longitude, self.bbox, self.image_width, self.image_height)
-        current_time = time.time()
         #self.get_logger().info("Got new position")
-
-        if new_grid_cell != self.current_grid_cell and (current_time-self.last_recalculation_time > self.min_path_recalculation_interval_seconds):
-            self.get_logger().info("Recalculating path")
-            self.recalculate_path_from_exact_points()
-            self.last_recalculation_time = time.time()
-
-        if(len(self.exact_points)>0 and abs(msg.latitude-self.exact_points[0].latitude)<0.00004 and abs(msg.longitude-self.exact_points[0].longitude)<0.00004):
-            self.get_logger().info("Removing passed exact point")
-            self.grid_points.pop(0)
-            self.exact_points.pop(0)
-            # If we've completed the path and want to loop, do so
-            if(len(self.exact_points)==0 and self.loop_path):
-                self.exact_points = self.last_exact_points.copy()
-                self.grid_points = self.last_grid_points.copy()
-                self.recalculate_path_from_exact_points()
-                self.find_current_segment()
-
             
         self.find_current_segment()
         self.current_grid_cell = new_grid_cell
@@ -418,38 +363,6 @@ class PathFollower(LifecycleNode):
     def airmar_speed_knots_callback(self, msg: Float64) -> None:
         self.speed_knots = msg.data
         self.find_current_segment()
-
-    def get_path(self, start, goal) -> GetPath.Response:
-        self.get_logger().info(f"get_path with {start}, {goal}")
-        if self.wind_angle_deg is None:
-            self.get_logger().info("No wind reported yet, cannot path")
-            return
-        req = GetPath.Request()
-        start_point = Point()
-        end_point = Point()
-        start_point.x = float(start[0])
-        start_point.y = float(start[1])
-        end_point.x = float(goal[0])
-        end_point.y = float(goal[1])
-        req.start = start_point
-        req.end = end_point
-        req.pathfinding_strategy = GetPath.Request.PATHFINDING_STRATEGY_PRMSTAR
-        
-        #Pathfinder assumes 0 is along the +X axis. Airmar data is 0 along -y axis. and inverted
-        wind_angle_adjusted = 360-(self.wind_angle_deg+90)
-        if(wind_angle_adjusted<0):
-            wind_angle_adjusted += 360
-        wind_angle_adjusted%=360
-        self.get_logger().info(f"wind adjusted: {wind_angle_adjusted}")
-
-
-        req.wind_angle_deg = float(wind_angle_adjusted)
-        self.get_logger().info("Getting path")
-        #synchronous service call because ROS2 async doesn't work in callbacks
-        result = self.get_path_cli.call(req)
-
-        self.get_logger().info("Path returned!")
-        return result
     
     def calculate_initial_bearing(self, point_A, point_B) -> float:
         lat1, lon1 = map(radians, point_A)
@@ -462,411 +375,16 @@ class PathFollower(LifecycleNode):
 
         return degrees(initial_bearing)
 
-    def get_square_corners(self, A, B, side_length, direction) -> List[Tuple[float, float]]:
-        """
-        Calculates the corners of a square around point B, based on the direction from point A to B and a specified side length.
-        The square is oriented such that its sides are either perpendicular or parallel to the line from A to B depending on the direction.
-
-        :param A: A tuple (latitude, longitude) representing the starting point.
-        :param B: A tuple (latitude, longitude) representing the end point or the center of the square.
-        :param side_length: The side length of the square.
-        :param direction: A string indicating the direction to rotate the square ('right' or 'left') around point B.
-
-        :return: A list of tuples representing the geographic coordinates (latitude, longitude) of the square's corners.
-                The order of corners depends on the specified direction.
-
-        Function behavior includes:
-        - Calculating the diagonal distance of the square based on the side length.
-        - Determining the initial bearing from point A to point B.
-        - Calculating bearings for each corner of the square using the initial bearing and adding specific angles.
-        - Using the geodesic method to find the exact locations for each corner based on these bearings.
-        - Returning the corners in a specific order depending on whether the direction is 'right' or 'left'.
-
-        This function is used to calculate intermediate targets for buoy rounding maneuvers.
-        """
-        # Convert side length to diagonal distance
-        diagonal_distance = (side_length * sqrt(2)) / 2  # Half diagonal for geodesic distance
-        
-        def destination_point(start_point, bearing, distance):
-            return geodesic(meters=distance).destination(start_point, bearing)
-        
-        # Initial point and bearing
-        bearing_AB = self.calculate_initial_bearing(A, B)
-        bearings = [(bearing_AB + angle) % 360 for angle in [45, -45, 135, -135]]  # four bearings for a perpendicular square
-        
-        point_B = geopy_point(B)
-        # 0, 1, 2, 3 = back right, back left, front right, front left
-        corners = [destination_point(point_B, bearing, diagonal_distance) for bearing in bearings]
-        if (direction == "right"):
-            return [corners[3], corners[1], corners[0], corners[2]]
-        elif (direction == "left"):
-            return [corners[2], corners[0], corners[1], corners[3]]
-        
-        #This should not happen
-        return None
-
-    def get_relevant_square_corners(self, target_point: GeoPoint, previous_point: GeoPoint, next_point: GeoPoint, direction) -> List[Tuple[float, float]]:
-        corners = self.get_square_corners((previous_point.latitude, previous_point.longitude), (target_point.latitude, target_point.longitude), self.buoy_rounding_distance_meters, direction)
-        self.get_logger().info(f"Target: {target_point}, previous: {previous_point}, next: {next_point}, corners: {corners}")
-        if next_point is None:
-            return corners
-        
-        relevant = corners[:2]
-        d0 = great_circle(corners[1], (next_point.latitude, next_point.longitude)).meters
-        d1 = great_circle(corners[2], (next_point.latitude, next_point.longitude)).meters
-        if(d1<d0):
-            relevant.append(corners[2])
-        d2 = great_circle(corners[3], (next_point.latitude, next_point.longitude)).meters
-        if(d2<d1):
-            relevant.append(corners[3])
-        
-        return relevant
-
-    def remove_last_points_if_necessary(self, next_point):
-        """
-        Removes points from the list of exact points and grid points if they are deemed unnecessary based on their distance
-        to a new point ('next_point'). This function is called when adding waypoints, and is intended to remove unwanted rounding 
-        segments generated around a previous rounding waypoint.
-
-        :param next_point: A tuple (latitude, longitude) representing the next point's geographic coordinates.
-
-        :return: None. Modifies the internal lists 'exact_points' and 'grid_points' by potentially removing points that
-                are no longer relevant after analyzing the new point's proximity to the previous points.
-
-        Function behavior includes:
-        - Checking if the last processed waypoint was a rounding type.
-        - Comparing distances between consecutive exact points and the next point.
-        - Removing points from both 'exact_points' and 'grid_points' if the conditions indicate that newer points
-        have looped back and are curther away than earlier points, requiring a path correction
-
-        This function is intended to ensure buoy rounding paths are sensible.
-        """
-        # Remove points from last rounding waypoint if necessary
-        if(self.last_waypoint_was_rounding_type):
-            num_points = len(self.exact_points)
-            if(num_points>1):
-                p1 = self.exact_points[num_points-2]
-                if(num_points>2):
-                    p0 = self.exact_points[num_points-3]
-                    d0 = great_circle((p0.latitude, p0.longitude), next_point).meters
-                d1 = great_circle((p1.latitude, p1.longitude), next_point).meters
-                if(num_points>2 and d0<d1):
-                    self.exact_points.pop()
-                    self.exact_points.pop()
-                    self.grid_points.pop()
-                    self.grid_points.pop()
-                else:
-                    p2 = self.exact_points[num_points-1]
-                    d2 = great_circle((p2.latitude, p2.longitude), next_point).meters
-                    if(d1<d2):
-                        self.exact_points.pop()
-                        self.grid_points.pop()
-
-    def calculate_exact_points_from_waypoint(self, waypoint_msg: Waypoint) -> None:
-        """
-        Processes a waypoint message to calculate exact geographic points that the path follower node should navigate through.
-        Depending on the type of waypoint, this function either calculates corner points for rounding maneuvers (either to the right or left), 
-        snapping to the closest buoy if within a defined proximity, or directly uses the waypoint's location.
-
-        The function updates the current path with exact geographic points and grid coordinates on the current map.
-
-        :param waypoint_msg: A sailbot_msgs/Waypoint message object containing waypoint information such as the latitude, longitude, and type of the waypoint.
-
-        :return: None. The function updates the instance's 'exact_points' and 'grid_points' lists with the calculated points.
-
-        Function behavior includes:
-        - Checking each buoy position for proximity to the waypoint and snapping to the closest buoy if applicable.
-        - Handling different types of waypoints like intersection, circle right, and circle left by generating respective path adjustments.
-        - Logging various state changes and decisions for debugging and monitoring purposes.
-        - Maintaining and updating the internal node state based on the type of the last waypoint processed.
-
-        This function assumes that 'latitude', 'longitude', 'bbox',
-        'image_width', and 'image_height' are available within the class instance and are appropriately set before calling this function.
-        """
-        
-        closestDistance = float('inf')
-        closestBuoyKey = None
-        for key in self.current_buoy_positions.keys():
-            buoy_detection = self.current_buoy_positions[key]
-            distance = geodesic((buoy_detection.position.latitude, buoy_detection.position.longitude), (waypoint_msg.point.latitude, waypoint_msg.point.longitude)).meters
-            if(distance<self.buoy_snap_distance_meters and distance<closestDistance):
-                closestDistance = distance
-                closestBuoyKey = key
-        
-        if (waypoint_msg.type == Waypoint.WAYPOINT_TYPE_INTERSECT):
-            self.get_logger().info(f"before: Num grid points: {len(self.grid_points)}, num exact points: {len(self.exact_points)}")
-
-            self.get_logger().info(f"Intersect")
-            self.remove_last_points_if_necessary(next_point=(waypoint_msg.point.latitude, waypoint_msg.point.longitude))
-
-            self.last_waypoint_was_rounding_type = False
-            self.exact_points.append(waypoint_msg.point)
-            self.grid_points.append(self.latlong_to_grid_proj(waypoint_msg.point.latitude, waypoint_msg.point.longitude, self.bbox, self.image_width, self.image_height))
-            self.get_logger().info(f"after: num grid points: {len(self.grid_points)}, num exact points: {len(self.exact_points)}")
-
-        else:
-
-            previousPoint = None
-            if(len(self.exact_points) != 0):
-                previousPoint = self.exact_points[-1]
-            else:
-                previousPoint = GeoPoint(latitude=self.latitude, longitude=self.longitude)
-
-            corners = []
-            adjustedPoint = waypoint_msg.point
-            if(closestBuoyKey is not None):
-                adjustedPoint = self.current_buoy_positions[closestBuoyKey]
-                threat_id = self.waypoint_threat_id_map[(waypoint_msg.point.latitude, waypoint_msg.point.longitude)]
-                self.get_logger().info(f"Threat of id {threat_id} being modified")
-                self.add_threat(Waypoint(point=self.current_buoy_positions[closestBuoyKey], type=waypoint_msg.type), id=threat_id)
-                self.get_logger().info(f"Snapping point to buoy: {self.current_buoy_positions[closestBuoyKey]}")
-            if waypoint_msg.type == Waypoint.WAYPOINT_TYPE_CIRCLE_RIGHT:
-                corners = self.get_square_corners((previousPoint.latitude, previousPoint.longitude), (adjustedPoint.latitude, adjustedPoint.longitude), self.buoy_rounding_distance_meters, "right")
-                self.get_logger().info(f"Circle right {corners}")
-            elif waypoint_msg.type == Waypoint.WAYPOINT_TYPE_CIRCLE_LEFT:
-                self.get_logger().info(f"Circle left {corners}")
-                corners = self.get_square_corners((previousPoint.latitude, previousPoint.longitude), (adjustedPoint.latitude, adjustedPoint.longitude), self.buoy_rounding_distance_meters, "left")
-
-            self.remove_last_points_if_necessary(next_point=corners[0])
-
-            for corner in corners:
-                self.grid_points.append(self.latlong_to_grid_proj(corner[0], corner[1], self.bbox, self.image_width, self.image_height))
-                self.exact_points.append(GeoPoint(latitude = corner[0], longitude = corner[1]))
-
-            self.last_waypoint_was_rounding_type = True
-
-    def recalculate_path_from_exact_points(self) -> None:
-        """
-        Recalculates the current path based on exact geographic points and grid coordinates determined by previous processing.
-        This function constructs the path segment by segment, updating it with any changes in conditions or coordinates.
-
-        The function checks for wind conditions, recalculates path segments between exact points, and publishes the updated path.
-
-        :return: None. The function directly updates the 'current_path' and 'current_grid_path' attributes of the instance, 
-                and publishes the new path to a designated topic.
-
-        Function behavior includes:
-        - Verifying if wind conditions are reported; if not, the function logs a message and exits without updating the path.
-        - If there are no waypoints to process (i.e., if 'grid_points' is empty), the function clears the current path and logs this event.
-        - Creating a new path by connecting all exact points through calculated segments, while taking into account wind angle.
-        - Dynamically inserting intermediate points into path segments to enhance navigation precision.
-        - Publishing the newly calculated path for use by the navigation system.
-        - Logging various state changes and decisions for debugging and monitoring purposes.
-
-        This function assumes that 'current_grid_cell' and 'grid_points' are available within the class instance 
-        and are appropriately set before calling this function.
-        """
-         
-        if self.wind_angle_deg is None:
-            self.get_logger().info("No wind reported yet, cannot path")
-            return
-        
-        # Reset look-ahead, since previous values are not relevant anymore
-        self.previous_position_index = 0
-        if len(self.grid_points) == 0:
-            self.get_logger().info("Empty waypoints, will clear path")
-            self.current_path = GeoPath()
-            self.current_path_publisher.publish(self.current_path)
-            return
-        path_segments = []
-        path_segments.append(self.get_path(self.current_grid_cell, self.grid_points[0]).path)
-        for i in range(len(self.grid_points)-1):
-            path_segments.append(self.get_path(self.grid_points[i], self.grid_points[i+1]).path)
-        #self.get_logger().info(f"Last path segment: {path_segments[-1].poses}")
-        
-        #self.get_logger().info("Calculated all path segments")
-        for segment in path_segments:
-           segment.poses = self.insert_intermediate_points(segment.poses, 0.8)
-
-        final_path = GeoPath()
-        final_grid_path = []
-        i=-1
-        k=0
-        # final_grid_path.append(Point(x=float(self.current_grid_cell[0]), y=float(self.current_grid_cell[1])))
-        # final_path.points.append(GeoPoint(latitude=self.latitude, longitude=self.longitude))
-
-        # Track the indices in the current path which correspond to endpoints of straight-line path segments
-        segment_endpoint_indices = [0]
-        for segment in path_segments:
-            #skip failed waypoints
-            if(len(segment.poses)==0):
-                continue 
-
-            for j in range(1, len(segment.poses)):
-                poseStamped = segment.poses[j]
-                point = poseStamped.pose.position
-                #self.get_logger().info(f"point: {point}")
-                lat, lon = self.grid_to_latlong_proj(point.x, point.y, self.bbox, self.image_width, self.image_height)
-                geopoint = GeoPoint()
-                geopoint.latitude = lat
-                geopoint.longitude = lon
-                #append latlon position to global path, and grid point to grid path
-                final_path.points.append(geopoint)
-                final_grid_path.append(point)
-                k+=1
-            #append exact final position
-            #self.get_logger().info(f"num exact points: {len(self.exact_points)}, i: {i}")
-            #final_path.points.append(self.exact_points[i+1])
-            #final_grid_path.append(segment.poses[len(segment.poses)-1].pose.position)
-            segment_endpoint_indices.append(len(segment.poses)-1)
-            i+=1
-
-
-        self.get_logger().info(f"Calculated new path")
-        self.current_path_publisher.publish(final_path)
-        self.current_path = final_path
-        self.current_grid_path = final_grid_path
-        self.segment_endpoint_indices = segment_endpoint_indices
-
-    #currently only used to clear points.
-    def waypoints_callback(self, msg: WaypointPath) -> None:
-        self.get_logger().info("Got waypoints!")
-        self.waypoints = msg
-        self.clear_threats()
-        self.exact_points = []
-        self.grid_points = []
-        self.recalculate_path_from_exact_points()
-        self.find_current_segment()
-        self.get_logger().info("Ending waypoints callback")
-    
-    def clear_threats(self) -> None:
-        for id in self.threat_ids:
-            req = SetThreat.Request()
-            req.id = id
-            req.remove = True
-            self.get_logger().info("Removing threat")
-            #synchronous service call because ROS2 async doesn't work in callbacks
-            result = self.set_threat_cli.call(req)
-            self.get_logger().info("Threat removed")
-        self.waypoint_threat_id_map.clear()
-
-
-    def add_threat(self, waypoint: Waypoint, id=-1) -> None:
-        """
-        Adds a threat to the system based on a waypoint's geographic location by converting it into a Gaussian threat model.
-        This function also performs a synchronous service call to register the threat in the system and optionally map the threat ID
-        back to the waypoint for subsequent adjustments.
-
-        :param waypoint: A 'Waypoint' object that contains the latitude and longitude of the threat location.
-        :param id: An optional integer specifying the threat ID. If set to -1, a new threat ID is requested. Default is -1.
-
-        :return: None. The function updates the system with a new or adjusted threat model and logs the response.
-
-        Function behavior includes:
-        - Calculating grid coordinates from the waypoint's geographic coordinates.
-        - Configuring a GaussianThreat object with predefined size and intensity.
-        - Making a synchronous service call to set the threat in the pathfinding system.
-        - Logging the setting process and the response, including the assigned threat ID.
-        - Storing the assigned threat ID for position adjustment and reference.
-
-        This function assumes that 'buoy_threat_size_map_units', 'buoy_threat_gaussian_intensity',
-        'bbox', 'image_width', 'image_height', and 'set_threat_cli' (a ROS2 service client) are properly configured and available.
-        """
-        threat = GaussianThreat()
-        threat.size = self.buoy_threat_size_map_units
-        threat.intensity = self.buoy_threat_guassian_intensity
-        x, y = self.latlong_to_grid_proj(waypoint.point.latitude, waypoint.point.longitude, self.bbox, self.image_width, self.image_height)
-        threat.center.x = float(x)
-        threat.center.y = float(y)
-        
-        req = SetThreat.Request()
-        req.id = id
-        req.threat = threat
-        
-        self.get_logger().info("Setting threat")
-        #synchronous service call because ROS2 async doesn't work in callbacks
-        result = self.set_threat_cli.call(req)
-        self.get_logger().info(f"Threat id returned: {result.assigned_id}")
-        if(id == -1): # for position adjustment later
-            self.waypoint_threat_id_map[(waypoint.point.latitude, waypoint.point.longitude)] = result.assigned_id
-        self.threat_ids.append(result.assigned_id)
-
-    def single_waypoint_callback(self, msg: Waypoint) -> None:
-        """
-        Callback function that processes a single waypoint message. This function updates the waypoint list, calculates exact points, 
-        recalculates the path, and determines the look-ahead point based on the received waypoint message.
-
-        :param msg: A sailbot_msgs/Waypoint object that contains details such as the type of waypoint and its geographic coordinates.
-
-        :return: None. This function triggers a series of operations that update the internal state of the navigation system, 
-                including appending the waypoint to a list, potentially adding a threat to the map based on the waypoint type, 
-                recalculating the navigation path, and updating the look-ahead mechanism.
-
-        Function behavior includes:
-        - Logging receipt of a new waypoint.
-        - Appending the new waypoint to the 'waypoints' list.
-        - Adding the waypoint as a threat if it is a rounding waypoint (either to the right or left).
-        - Calling the function to calculate exact points from the new waypoint.
-        - Recalculating the entire path based on updated waypoint data.
-        - Determining and updating the look-ahead point for navigation.
-        - Logging the completion of processing for the waypoint.
-
-        This function is intended to be used as a callback for a waypoint message subscriber in a ROS2 node environment.
-        """
-        self.get_logger().info("Got single waypoint")
-        self.waypoints.waypoints.append(msg)
-        if msg.type == Waypoint.WAYPOINT_TYPE_CIRCLE_RIGHT or msg.type == Waypoint.WAYPOINT_TYPE_CIRCLE_LEFT:
-            self.add_threat(msg)
-        self.calculate_exact_points_from_waypoint(msg)
-        self.last_exact_points = self.exact_points.copy()
-        self.last_grid_points = self.grid_points.copy()
-        self.recalculate_path_from_exact_points()
-        self.find_current_segment()
-        self.get_logger().info("Ending single waypoint callback")
-
-    def set_waypoints(self):
-        #self.tempt_test_timer.cancel()
-        if(self.made_waypoints == False):
-            self.made_waypoints = True
-            p1 = Waypoint()
-            p1.point.latitude = 42.846733
-            p1.point.longitude = -70.974783
-            p1.type = Waypoint.WAYPOINT_TYPE_CIRCLE_LEFT
-            self.single_waypoint_callback(p1)
-
-            p2 = Waypoint()
-            p2.point.latitude = 42.848148
-            p2.point.longitude = -70.976775
-            p2.type = Waypoint.WAYPOINT_TYPE_CIRCLE_LEFT
-            self.single_waypoint_callback(p2)
-
-            p3 = Waypoint()
-            p3.point.latitude = 42.846820
-            p3.point.longitude = -70.978182
-            p3.type = Waypoint.WAYPOINT_TYPE_CIRCLE_LEFT
-            self.single_waypoint_callback(p3)
-
-            p4 = Waypoint()
-            p4.point.latitude = 42.845033
-            p4.point.longitude = -70.977105
-            p4.type = Waypoint.WAYPOINT_TYPE_CIRCLE_LEFT
-            self.single_waypoint_callback(p4)
-
     def true_wind_callback(self, msg: Wind) -> None:
         #self.get_logger().info(f"Got wind: {msg.direction}")
         self.wind_angle_deg = msg.direction
-        self.set_waypoints()
 
-    def buoy_position_callback(self, msg: BuoyDetectionStamped) -> None:
-        self.current_buoy_positions[msg.id] = msg
-        self.current_buoy_times[msg.id] = time.time()
-
-    def remove_old_buoys(self):
-        current_time = time.time()
-        keys_to_delete = [key for key, (timestamp) in self.current_buoy_times.items() if current_time - timestamp > 3]
-        for key in keys_to_delete:
-            del self.current_buoy_positions[key]
-            del self.current_buoy_times[key]
-
-    def request_replan_callback(self, msg: Empty) -> None:
-        current_time = time.time()
-        # Allow this recalculation at most once per second
-        if(current_time-self.last_recalculation_time<1.0):
-            return
-        
-        self.last_recalculation_time = time.time()
-        self.recalculate_path_from_exact_points()
+    def current_path_callback(self, msg: GeoAndGridPath) -> None:
+        self.current_path = msg.geo_path
+        self.current_grid_path = msg.grid_path
+        self.previous_position_index = 0 # Reset to start of new path
         self.find_current_segment()
+
     
     def find_current_segment(self) -> None:
         """
@@ -883,13 +401,10 @@ class PathFollower(LifecycleNode):
         - Iterating through path points to find the appropriate target path segment based on calculated distance.
         - Conditionally publishing target positions and path segments for system updates and debugging.
         - Checking if the next path point is closer than the current target to avoid backtracking.
-        - Managing and removing passed exact points to maintain an updated path.
 
         This function assumes that instance attributes 'latitude', 'longitude', 'current_path', 
         'current_grid_path', and 'exact_points' are properly initialized and available.
-        """
-        grid_cell_msg = Point()
-        
+        """        
 
         if len(self.current_path.points) == 0:
             #self.get_logger().info("No lookAhead point for zero-length path")
@@ -919,13 +434,6 @@ class PathFollower(LifecycleNode):
                 return
             else:
                 pass
-                #remove exact points if we've passed them
-                #self.get_logger().info(f"Point is: {point}")
-                # Floating point errors can cause problems here, apparently. This just checks if things are close *enough*.
-                # if(abs(point.latitude-self.exact_points[0].latitude)<0.00000001 and abs(point.longitude-self.exact_points[0].longitude)<0.00000001):
-                #     self.get_logger().info("Removing passed exact point")
-                #     self.grid_points.pop(0)
-                #     self.exact_points.pop(0)
 
     def vector_to_heading(self, dx, dy):
         """

@@ -287,7 +287,6 @@ class HeadingController(LifecycleNode):
         self.collision_avoidance_subscription = self.create_subscription(Empty, 'collision_avoidance_trigger', self.collision_avoidance_callback, 10)
         
         self.timer = self.create_timer(0.1, self.timer_callback)
-        self.get_logger().info("Heading controller node configured")
 
         heading_error = ctrl.Antecedent(np.arange(-180, 181, 1), 'heading_error')
         rate_of_change = ctrl.Antecedent(np.arange(-90, 91, 1), 'rate_of_change')
@@ -341,6 +340,7 @@ class HeadingController(LifecycleNode):
         self.rudder_control = ctrl.ControlSystem([rule1, rule2, rule3, rule4, rule5, rule6, rule7, rule8, rule9, rule10, rule11, rule12, rule13, rule14, rule15, rule16, rule17])
         self.rudder_simulator = ctrl.ControlSystemSimulation(self.rudder_control)
         #super().on_configure(state)
+        self.get_logger().info("Heading controller node configured")
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
@@ -747,6 +747,7 @@ class HeadingController(LifecycleNode):
 
         target_heading_msg = Float64()
         target_heading_msg.data = target_heading
+        self.get_logger().info(f"Target heading: {target_heading}")
         self.target_heading_debug_publisher.publish(target_heading_msg)
         
         #self.get_logger().info(f"Target heading: {target_heading}")

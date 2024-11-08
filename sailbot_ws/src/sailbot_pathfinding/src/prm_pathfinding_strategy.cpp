@@ -84,7 +84,7 @@ std::vector<MapNode*> PRMPathfindingStrategy::AStar(Map& map, MapNode* start, Ma
 	return std::vector<MapNode*>(); // Return an empty path if no path is found
 }
 
-std::vector<std::pair<double, double>> PRMPathfindingStrategy::solve(Map& map, MapNode* start, MapNode* goal, double wind_angle_rad, double no_go_angle_rad) {
+std::vector<std::pair<double, double>> PRMPathfindingStrategy::solve(Map& map, MapNode* start, MapNode* goal, double wind_angle_rad, double no_go_angle_rad, double current_yaw_deg) {
 	MapNode* prmStart = map.addSinglePRMMapNode(start->x, start->y, map.prm_connection_radius);
 	MapNode* prmGoal = map.addSinglePRMMapNode(goal->x, goal->y, map.prm_connection_radius);
 	auto path = AStar(map, prmStart, prmGoal, wind_angle_rad, no_go_angle_rad);

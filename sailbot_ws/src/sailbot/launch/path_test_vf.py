@@ -24,7 +24,7 @@ def generate_launch_description():
         namespace='',
         output='screen',
         respawn=True,
-        parameters=[config_file_path, {'map_name': LaunchConfiguration('map_name'), 'managed_nodes': ["ballast_control", "wind_smoother", "airmar_reader", "path_follower", "heading_controller", "esp32_comms"]}]
+        parameters=[config_file_path, {'map_name': LaunchConfiguration('map_name'), 'managed_nodes': ["wind_smoother", "airmar_reader", "path_generator", "path_follower", "heading_controller", "esp32_comms"]}]
     )
     ballast_node = LifecycleNode(
         package='sailbot', 
@@ -85,6 +85,15 @@ def generate_launch_description():
         respawn=True,
         parameters=[config_file_path]
     )
+    path_generator_node = LifecycleNode(
+        package='sailbot', 
+        executable='path_generator', 
+        name='path_generator',
+        namespace='',
+        output='screen',
+        respawn=True,
+        parameters=[config_file_path, {'map_name': LaunchConfiguration('map_name')}]
+    )
     path_follower_node = LifecycleNode(
         package='sailbot', 
         executable='path_follower_vf', 
@@ -106,7 +115,7 @@ def generate_launch_description():
         namespace='',
         output='screen',
         respawn=True,
-        parameters=[{'managed_nodes': ["ballast_control", "wind_smoother", "airmar_reader", "path_follower", "heading_controller", "esp32_comms"]}]
+        parameters=[{'managed_nodes': ["wind_smoother", "airmar_reader", "path_generator", "path_follower", "heading_controller", "esp32_comms"]}]
     )
     pathfinder_node = Node(
         package='sailbot_pathfinding', 
@@ -131,16 +140,17 @@ def generate_launch_description():
     #ld.add_action(managed_node_names)
     ld.add_action(map_name)
     ld.add_action(network_comms_node)
-    ld.add_action(ballast_node) 
+    #ld.add_action(ballast_node) 
     #ld.add_action(pwm_node)
     ld.add_action(airmar_node)
     ld.add_action(cv_node)
     ld.add_action(wind_smoother_node)
 
-    ld.add_action(esp_node)
+    #ld.add_action(esp_node)
     ld.add_action(heading_node)
     ld.add_action(heading_select_node)
 
+    ld.add_action(path_generator_node)
     ld.add_action(path_follower_node)
 
     ld.add_action(state_manager_node)

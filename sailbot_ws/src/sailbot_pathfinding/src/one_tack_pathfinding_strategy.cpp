@@ -7,7 +7,7 @@
 #include <fstream>
 
 
-std::vector<std::pair<double, double>> OneTackPathfindingStrategy::solve(Map& map, MapNode* start, MapNode* goal, double wind_angle_rad, double no_go_angle_rad) {
+std::vector<std::pair<double, double>> OneTackPathfindingStrategy::solve(Map& map, MapNode* start, MapNode* goal, double wind_angle_rad, double no_go_angle_rad, double current_yaw_rad) {
 	uint32_t h = map.height;
 	uint32_t w = map.width;
 	double distAtoB = sqrt(pow(goal->x - start->x, 2) + pow(goal->y - start->y, 2));
@@ -15,6 +15,7 @@ std::vector<std::pair<double, double>> OneTackPathfindingStrategy::solve(Map& ma
 	double angle_nogo_1 = wind_angle_rad - M_PI - no_go_angle_rad;
 	double angle_nogo_2 = wind_angle_rad - M_PI + no_go_angle_rad;
 
+	// Compute port and starboard tack points
 	double a = angleAtoB - (wind_angle_rad - M_PI - no_go_angle_rad);
 	double b = M_PI - 2 * no_go_angle_rad;
 	double c = M_PI - a - b;
@@ -27,21 +28,33 @@ std::vector<std::pair<double, double>> OneTackPathfindingStrategy::solve(Map& ma
 	double C2_x = (start->x + length2 * cos(angle_nogo_2));
 	double C2_y = (start->y + length2 * sin(angle_nogo_2));
 
-	float first = 0;
-	float second = 0;
+	// Calculate angles for the first segment of each tack
+    double angle_c1 = atan2(C1_y - start->y, C1_x - start->x);
+    double angle_c2 = atan2(C2_y - start->y, C2_x - start->x);
+
+    // Compute the angular difference to the current heading for each tack
+    double diff_c1 = fabs(angle_c1 - current_yaw_rad);
+    double diff_c2 = fabs(angle_c2 - current_yaw_rad);
+
+    // Normalize the angular difference to be within [0, M_PI] for comparison
+	diff_c1 = (diff_c1 > M_PI) ? 2 * M_PI - diff_c1 : diff_c1;
+	diff_c2 = (diff_c2 > M_PI) ? 2 * M_PI - diff_c2 : diff_c2;
+
+	//float first = 0;
+	//float second = 0;
 	bool first_good = false;
 	bool second_good = false;
 	if (raycast(map, start->x, start->y, C1_x, C1_y)) {
-		first += accumulate_danger_raycast(map, start->x, start->y, C1_x, C1_y);
+		//first += accumulate_danger_raycast(map, start->x, start->y, C1_x, C1_y);
 		if (raycast(map, C1_x, C1_y, goal->x, goal->y)) {
-			first += accumulate_danger_raycast(map, C1_x, C1_y, goal->x, goal->y);
+			//first += accumulate_danger_raycast(map, C1_x, C1_y, goal->x, goal->y);
 			first_good = true;
 		}
 	}
 	if (raycast(map, start->x, start->y, C2_x, C2_y)) {
-		second += accumulate_danger_raycast(map, start->x, start->y, C2_x, C2_y);
+		//second += accumulate_danger_raycast(map, start->x, start->y, C2_x, C2_y);
 		if (raycast(map, C2_x, C2_y, goal->x, goal->y)) {
-			second += accumulate_danger_raycast(map, C2_x, C2_y, goal->x, goal->y);
+			//second += accumulate_danger_raycast(map, C2_x, C2_y, goal->x, goal->y);
 			second_good = true;
 		}
 	}
@@ -61,12 +74,13 @@ std::vector<std::pair<double, double>> OneTackPathfindingStrategy::solve(Map& ma
 	c2Vec.push_back(goalPair);
 
 	if(first_good && second_good){
-		if(first < second){
+		// Choose the tack with the smaller angular difference from current heading
+		if (diff_c1 < diff_c2) {
 			return c1Vec;
 		} else {
 			return c2Vec;
 		}
-	} else if (first_good){
+	} else if (first_good){ // If only one is good, take that one.
 		return c1Vec;
 	} else if (second_good) {
 		return c2Vec;

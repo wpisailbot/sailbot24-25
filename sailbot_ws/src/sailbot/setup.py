@@ -57,6 +57,7 @@ setup(
             'search_rescue_vf = sailbot.search_rescue_vf:main',
             'station_keep_vf = sailbot.station_keep_vf:main',
             'collision_avoidance_vf = sailbot.collision_avoidance_vf:main',
+            'path_generator = sailbot.path_generator:main',
         ],
     },
 )

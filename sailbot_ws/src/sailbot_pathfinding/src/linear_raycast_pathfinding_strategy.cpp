@@ -5,7 +5,7 @@
 #include "raycast.h"
 #include "utilities.h"
 
-std::vector<std::pair<double, double>> LinearRaycastPathfindingStrategy::solve(Map& map, MapNode* start, MapNode* goal, double wind_angle_rad, double no_go_angle_rad) {
+std::vector<std::pair<double, double>> LinearRaycastPathfindingStrategy::solve(Map& map, MapNode* start, MapNode* goal, double wind_angle_rad, double no_go_angle_rad, double current_yaw_deg) {
 	if (raycast(map, start->x, start->y, goal->x, goal->y)) {
 		return path_to_doubles({ start, goal });
 	}

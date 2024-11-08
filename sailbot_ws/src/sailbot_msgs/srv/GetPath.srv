@@ -5,5 +5,6 @@ bool force_raycast
 geometry_msgs/Point start
 geometry_msgs/Point end
 float64 wind_angle_deg
+float64 current_yaw_deg
 ---
 nav_msgs/Path path

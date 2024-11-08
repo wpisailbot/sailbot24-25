@@ -31,6 +31,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/BuoyTypeInfo.msg"
   "msg/CVParameters.msg"
   "msg/AnnotatedImage.msg"
+  "msg/GeoAndGridPath.msg"
   "srv/GetPath.srv"
   "srv/SetMap.srv"
   "srv/RestartNode.srv"
