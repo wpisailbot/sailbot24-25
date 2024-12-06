@@ -19,9 +19,10 @@ from rclpy.lifecycle import State
 from rclpy.lifecycle import TransitionCallbackReturn
 from rclpy.timer import Timer
 from rclpy.subscription import Subscription
+from rclpy.action.client import ActionClient
 
 from sailbot_msgs.msg import AutonomousMode, GeoPath, Wind, PathSegment
-
+from sailbot_msgs.action import CrossWind
 PI = math.pi
 TWO_PI = PI*2
 #normalizes an angle
@@ -178,12 +179,11 @@ class HeadingController(LifecycleNode):
         self.current_path_subscription: Optional[Subscription]
         self.request_tack_subscription: Optional[Subscription]
 
-
-
         self.timer: Optional[Timer]
-        # self.target_position = GeoPoint()
-        # self.target_position.latitude = 42.273051
-        # self.target_position.longitude = -71.805049
+        self.tack_action_client = ActionClient(self, Tack, 'perform_tack')
+        self.tack_action_in_progress = False
+        self.jibe_action_in_progress = False
+        self.tack_result_future = None
 
     def set_parameters(self) -> None:
         self.declare_parameter('sailbot.heading_control.rudder_adjustment_scale', 0.01)
@@ -661,6 +661,67 @@ class HeadingController(LifecycleNode):
         bearing = (90 - math.degrees(theta)) % 360
         return bearing
 
+    def handle_action_in_progress(self) -> bool:
+        """
+        Checks if a tack or jibe action is currently in progress and handles their completion or failure.
+
+        Returns:
+            bool: True if the caller should return early (skip normal steering this cycle),
+                False if no action is in progress or actions have completed and normal steering can continue.
+        """
+        # If no action is in progress, do nothing
+        if not self.tack_action_in_progress and not self.jibe_action_in_progress:
+            return False
+
+        # If we get here, either a tack or a jibe is in progress
+        # Check if the result is available
+        if self.tack_result_future is not None and self.tack_result_future.done():
+            result = self.tack_result_future.result().result
+            # Clear the in-progress flags
+            was_tack = self.tack_action_in_progress
+            was_jibe = self.jibe_action_in_progress
+            self.tack_action_in_progress = False
+            self.jibe_action_in_progress = False
+            self.tack_result_future = None
+
+            if result.success:
+                if was_tack:
+                    self.get_logger().info("Tack action succeeded. Resuming normal steering.")
+                elif was_jibe:
+                    self.get_logger().info("Jibe action succeeded. Resuming normal steering.")
+                return False  # Action complete, continue normal steering
+            else:
+                # Action failed
+                if was_tack:
+                    # If a tack fails, attempt a jibe
+                    self.get_logger().warn(f"Tack action failed: {result.message}. Attempting jibe.")
+
+                    jibe_goal = CrossWind.Goal()
+                    jibe_goal.wind_direction_deg = float(self.wind_direction_deg if self.wind_direction_deg is not None else 0.0)
+                    jibe_goal.timeout = 20.0
+                    jibe_goal.direction = -self.current_tack_dir  # TODO: is this right?
+                    jibe_goal.go_long_way = True
+
+                    # Send jibe goal
+                    jibe_future = self.tack_action_client.send_goal_async(jibe_goal)
+                    
+                    def jibe_goal_response_callback(fut):
+                        goal_handle = fut.result()
+                        if not goal_handle.accepted:
+                            self.get_logger().warn("Jibe goal was rejected. Resuming normal steering anyway.")
+                            return
+                        self.jibe_action_in_progress = True
+                        self.tack_result_future = goal_handle.get_result_async()
+
+                    jibe_future.add_done_callback(jibe_goal_response_callback)
+                    return True  # Start jibe and skip normal steering this cycle
+                elif was_jibe:
+                    # Jibe also failed—just resume normal steering
+                    self.get_logger().warn(f"Jibe action failed: {result.message}. Resuming normal steering.")
+                    return False
+        else:
+            return True
+
     def compute_rudder_angle(self) -> None:
         """
         Computes and publishes the rudder angle based on the current heading, target segment, and other navigational parameters.
@@ -695,6 +756,15 @@ class HeadingController(LifecycleNode):
         autonomous_modes = AutonomousMode()
         if (self.autonomous_mode != autonomous_modes.AUTONOMOUS_MODE_FULL):
             #self.get_logger().info("Not in auto")
+            return
+        
+        # Check if a tack or jibe action is running, and early-exit if it is.
+        if self.handle_action_in_progress():
+            # Result not ready, action still in progress
+            if self.tack_action_in_progress:
+                self.get_logger().debug("Tack action in progress, skipping rudder computation.")
+            else:
+                self.get_logger().debug("Jibe action in progress, skipping rudder computation.")
             return
         
         if(self.path_segment is None):
@@ -773,18 +843,41 @@ class HeadingController(LifecycleNode):
             self.request_jibe_publisher(Float32(self.current_jibe_dir))
             
 
-        #if we'd need to tack, 
+        # If a tack is needed, start a tack action if none is running
         if is_tack:
-            #If we want to allow tacking, try to. Else, turn the long way around.
             if self.allow_tack and not self.too_slow_to_tack:
-                self.rudder_angle += rudder_value*self.rudder_adjustment_scale
-            else:
-                self.rudder_angle -= rudder_value*self.rudder_adjustment_scale
-                if(self.is_downwind): # This should only happen if we decide to jibe instead of tack, and still get stuck.
-                    self.request_jibe_publisher(Float32(self.current_tack_dir*-1.0))
+                # Initiate the tack action
+                self.get_logger().info("Tack needed. Sending goal to tack action server.")
+                goal_msg = CrossWind.Goal()
+                goal_msg.wind_direction_deg = float(self.wind_direction_deg if self.wind_direction_deg is not None else 0.0)
+                goal_msg.timeout = 10.0
+                goal_msg.direction = self.current_tack_dir
 
+                # Send the goal asynchronously
+                send_goal_future = self.tack_action_client.send_goal_async(goal_msg)
+                def goal_response_callback(future):
+                    goal_handle = future.result()
+                    if not goal_handle.accepted:
+                        self.get_logger().warn("Tack goal was rejected.")
+                        self.tack_action_in_progress = False
+                        return
+                    
+                    self.tack_action_in_progress = True
+                    self.tack_result_future = goal_handle.get_result_async()
+
+                send_goal_future.add_done_callback(goal_response_callback)
+                
+                # Exit early this cycle; next cycles will exit until the tack finishes
+                return
+            else:
+                # If we can't tack, try to steer away or do something else
+                if self.allow_tack is False or self.too_slow_to_tack:
+                    self.rudder_angle -= rudder_value * self.rudder_adjustment_scale
+                    if self.is_downwind:
+                        self.request_jibe_publisher(Float32(self.current_tack_dir * -1.0))
         else:
-            self.rudder_angle += rudder_value*self.rudder_adjustment_scale
+            # Normal heading correction
+            self.rudder_angle += rudder_value * self.rudder_adjustment_scale
 
         if(self.rudder_angle>self.current_rudder_limit):
             self.rudder_angle = self.current_rudder_limit
@@ -794,10 +887,6 @@ class HeadingController(LifecycleNode):
         # If we are tacking, turn as hard as possible.
         # Trim tab controller will see this and may modify its behavior.
         if is_tack and self.allow_tack:
-            # if(self.rudder_angle>0):
-            #     self.rudder_angle = 31
-            # else:
-            #     self.rudder_angle = -31
             self.rudder_angle = 31*self.current_tack_dir # current_tack_dir should never be anything but 1 or -1
             self.request_tack_publisher.publish(Empty())
         

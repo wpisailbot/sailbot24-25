@@ -1,0 +1,16 @@
+# Goal
+float32 wind_direction_deg
+float32 timeout
+int8 direction           # +1 or -1, normally for tacking direction
+bool go_long_way         # If true, attempt a jibe (long way around) instead of normal tack
+
+---
+# Result
+bool success
+string message
+
+---
+# Feedback
+float32 current_heading
+float32 heading_error
+float32 elapsed_time

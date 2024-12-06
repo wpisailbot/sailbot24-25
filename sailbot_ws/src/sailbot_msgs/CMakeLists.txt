@@ -37,6 +37,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/RestartNode.srv"
   "srv/SetThreat.srv"
   "action/FollowPath.action"
+  "action/CrossWind.action"
   DEPENDENCIES std_msgs geometry_msgs nav_msgs sensor_msgs geographic_msgs
 )
 # uncomment the following section in order to fill in

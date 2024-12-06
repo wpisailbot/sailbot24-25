@@ -143,6 +143,15 @@ def generate_launch_description():
         respawn=True,
         output='screen'
     )
+
+    tack_node = Node(
+        package='sailbot',
+        executable='tack_server',
+        name='tack_server',
+        namespace='',
+        respawn=True,
+        output='screen'
+    )
     # Launch Description
     ld = launch.LaunchDescription()
     #ld.add_action(managed_node_names)
@@ -164,4 +173,5 @@ def generate_launch_description():
     ld.add_action(state_manager_node)
     ld.add_action(pathfinder_node)
     ld.add_action(fake_movement_node)
+    ld.add_action(tack_node)
     return ld

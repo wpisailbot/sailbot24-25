@@ -58,6 +58,7 @@ setup(
             'station_keep_vf = sailbot.station_keep_vf:main',
             'collision_avoidance_vf = sailbot.collision_avoidance_vf:main',
             'path_generator = sailbot.path_generator:main',
+            'tack_server = sailbot.tack_server:main',
         ],
     },
 )
