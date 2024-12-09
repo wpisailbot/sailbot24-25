@@ -23,7 +23,7 @@ CAMERA_RESOLUTION = (2208, 1242) # Width, Height
 CAMERA_WORLD_POSITION = np.array([0, 0, -1.8]) # XYZ in meters
 CAMERA_ORIENTATION = np.array([0, 0, 0]) # Orientation as pitch, yaw, roll
 
-#Camera calibration for LEFT camera info from ZED applicatio
+#Camera calibration for LEFT camera info from ZED application
 CX = 1099.58
 CY = 634.60
 
