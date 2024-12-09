@@ -93,7 +93,6 @@ class PathGenerator(LifecycleNode):
     :ivar waypoints: A 'WaypointPath' object containing the waypoints the boat must follow.
     :ivar current_path: A 'GeoPath' object representing the currently planned path.
     :ivar current_grid_path: List of grid coordinates corresponding to the 'current_path'.
-    :ivar segment_endpoint_indices: Indices in the 'current_path' where path segments end.
     :ivar buoy_rounding_distance_meters: Distance for rounding buoys during navigation.
     :ivar min_path_recalculation_interval_seconds: Minimum interval between path recalculations to avoid excessive updates.
     :ivar threat_ids: List of internal IDs returned from pathfinder node for identified buoy threats.
@@ -150,7 +149,7 @@ class PathGenerator(LifecycleNode):
     waypoints = WaypointPath()
     current_path = GeoPath()
     current_grid_path = []
-    segment_endpoint_indices = []
+    #segment_endpoint_indices = []
     #current_grid_cell = (16, 51)
     current_grid_cell = (16, 16)
 
@@ -669,7 +668,7 @@ class PathGenerator(LifecycleNode):
         # final_path.points.append(GeoPoint(latitude=self.latitude, longitude=self.longitude))
 
         # Track the indices in the current path which correspond to endpoints of straight-line path segments
-        segment_endpoint_indices = [0]
+        # segment_endpoint_indices = [0]
         for segment in path_segments:
             #skip failed waypoints
             if(len(segment.poses)==0):
@@ -691,7 +690,7 @@ class PathGenerator(LifecycleNode):
             #self.get_logger().info(f"num exact points: {len(self.exact_points)}, i: {i}")
             #final_path.points.append(self.exact_points[i+1])
             #final_grid_path.append(segment.poses[len(segment.poses)-1].pose.position)
-            segment_endpoint_indices.append(len(segment.poses)-1)
+            #segment_endpoint_indices.append(len(segment.poses)-1)
             i+=1
 
         combined = GeoAndGridPath()
@@ -703,7 +702,7 @@ class PathGenerator(LifecycleNode):
         self.current_path_publisher.publish(final_path)
         self.current_path = final_path
         self.current_grid_path = final_grid_path
-        self.segment_endpoint_indices = segment_endpoint_indices
+        #self.segment_endpoint_indices = segment_endpoint_indices
 
     #currently only used to clear points.
     def waypoints_callback(self, msg: WaypointPath) -> None:
@@ -830,7 +829,7 @@ class PathGenerator(LifecycleNode):
     def true_wind_callback(self, msg: Wind) -> None:
         #self.get_logger().info(f"Got wind: {msg.direction}")
         self.wind_angle_deg = msg.direction
-        self.set_waypoints()
+        #self.set_waypoints()
 
     def buoy_position_callback(self, msg: BuoyDetectionStamped) -> None:
         self.current_buoy_positions[msg.id] = msg

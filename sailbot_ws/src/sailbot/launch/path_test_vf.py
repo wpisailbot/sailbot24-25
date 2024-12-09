@@ -9,7 +9,7 @@ from ament_index_python.packages import get_package_share_directory
 def generate_launch_description():
     map_name = DeclareLaunchArgument(
         'map_name',
-        default_value="attitash_highres",
+        default_value="quinsigamond",
         description="The text before the first ':' in the map file name"
     )
     config_file_path = os.path.join(
@@ -146,7 +146,7 @@ def generate_launch_description():
     ld.add_action(cv_node)
     ld.add_action(wind_smoother_node)
 
-    #ld.add_action(esp_node)
+    ld.add_action(esp_node)
     ld.add_action(heading_node)
     ld.add_action(heading_select_node)
 

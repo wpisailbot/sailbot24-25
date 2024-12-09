@@ -95,6 +95,7 @@ class AirmarReader(LifecycleNode): #translates airmar data into json and publish
             self.ser = serial.Serial(port)
         except:
             return TransitionCallbackReturn.FAILURE
+        self.publisher_raw = self.create_lifecycle_publisher(String, 'airmar_data_raw', 10)
         self.publisher_ = self.create_lifecycle_publisher(String, 'airmar_data', 10)
         self.rot_publisher = self.create_lifecycle_publisher(Float64, 'airmar_data/rate_of_turn', 10)
         self.navsat_publisher = self.create_lifecycle_publisher(NavSatFix, 'airmar_data/lat_long', 10)
@@ -146,7 +147,7 @@ class AirmarReader(LifecycleNode): #translates airmar data into json and publish
         if msg.data == {}:
             return
         self.publisher_.publish(msg)
-        #self.get_logger().info('Publishing: "%s"' % msg.data)
+        self.get_logger().info('Publishing: "%s"' % msg.data)
 
     def publishIfValid(self, value, publisher, type: type):
         """
@@ -233,6 +234,9 @@ class AirmarReader(LifecycleNode): #translates airmar data into json and publish
         """
         try:
             line = self.ser.readline().decode()
+            string_msg = String()
+            string_msg.data = line
+            self.publisher_raw.publish(string_msg)
             #self.get_logger().info(line)
             tag = line.split(',',1)[0]
             type_code = tag[-3:]
