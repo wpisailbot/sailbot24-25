@@ -25,7 +25,7 @@ def bound(low, high, value):
 
 class BallastControl(LifecycleNode):
     """
-    A ROS 2 lifecycle node for controlling the ballast system of a sailboat, handling dynamic positioning based on sensor inputs
+    A ROS 2 lifecycle node for controlling the ballast system of a sailboat, handling dynamic positioning based on sensor input
     to maintain boat stability and optimal sailing conditions.
 
     This node interfaces with hardware through PWM signals to control the ballast motor based on roll data from an Airmar sensor,
