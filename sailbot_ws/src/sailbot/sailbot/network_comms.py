@@ -204,6 +204,8 @@ class NetworkComms(LifecycleNode):
         self.autonomous_mode_publisher: Optional[Publisher]
         self.waypoints_publisher: Optional[Publisher]
         self.single_waypoint_publisher: Optional[Publisher]
+        self.replace_waypoint_publisher: Optional[Publisher]
+
         self.cv_parameters_publisher: Optional[Publisher]
 
         self.rot_subscription: Optional[Subscription]
@@ -257,6 +259,7 @@ class NetworkComms(LifecycleNode):
 
         self.waypoints_publisher = self.create_lifecycle_publisher(WaypointPath, 'waypoints', 10)
         self.single_waypoint_publisher = self.create_lifecycle_publisher(Waypoint, 'single_waypoint', 10)
+        self.replace_waypoint_publisher = self.create_lifecycle_publisher(WaypointPath, 'replace_waypoint', 10)
 
 
         self.autonomous_mode_publisher = self.create_lifecycle_publisher(AutonomousMode, 'autonomous_mode', 10)
@@ -981,6 +984,42 @@ class NetworkComms(LifecycleNode):
         self.single_waypoint_publisher.publish(waypoint)
         return response
     
+   #gRPC function, do not rename unless you change proto defs and recompile gRPC files
+    def ExecuteReplaceWaypointCommand(self, command: control_pb2.ReplaceWaypointCommand, context):
+        self.get_logger().info("Attempting replace")
+        try:
+            self.get_logger().info(f"Replace data: \n{command}")
+            response = control_pb2.ControlResponse()
+            response.execution_status = control_pb2.ControlExecutionStatus.CONTROL_EXECUTION_SUCCESS
+            self.get_logger().info(f"Searching for old")
+            for i, waypoint in enumerate(self.current_boat_state.current_waypoints.waypoints):
+                #Find old waypoint
+                if waypoint.point.latitude == command.old_waypoint.point.latitude and waypoint.point.longitude == command.old_waypoint.point.longitude:
+                    self.get_logger().info(f"Old found, replacing")
+                    updated_path = [
+                        command.new_waypoint if wp == waypoint else wp
+                        for wp in self.current_boat_state.current_waypoints.waypoints]
+                    self.current_boat_state.current_waypoints.ClearField("waypoints")# = command.new_path
+                    self.current_boat_state.current_waypoints.waypoints.extend(updated_path)
+                break
+            self.get_logger().info(f"Check 1")
+            waypoints = [command.new_waypoint, command.old_waypoint]
+            waypoints[0] = command.new_waypoint
+            waypoints[1] = command.old_waypoint
+            self.get_logger().info(f"Check 2")
+            if(command.new_waypoint.type == boat_state_pb2.WaypointType.WAYPOINT_TYPE_INTERSECT):
+                waypoints[0].type = Waypoint.WAYPOINT_TYPE_INTERSECT
+            elif(command.new_waypoint.type == boat_state_pb2.WaypointType.WAYPOINT_TYPE_CIRCLE_RIGHT):
+                waypoints[0].type = Waypoint.WAYPOINT_TYPE_CIRCLE_RIGHT
+            elif(command.new_waypoint.type == boat_state_pb2.WaypointType.WAYPOINT_TYPE_CIRCLE_LEFT):
+                waypoints[0].type = Waypoint.WAYPOINT_TYPE_CIRCLE_LEFT
+
+            self.get_logger().info("Publishing replacement waypoint")
+            self.replace_waypoint_publisher.publish(waypoints)
+            return response
+        except Exception as e:
+            self.get_logger().error(f"Error in ExecuteReplaceWaypointCommand: {str(e)}")
+
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def ExecuteSetVFForwardMagnitudeCommand(self, command: control_pb2.SetVFForwardMagnitudeCommand, context):
         self.get_logger().info("Got VF forward magnitude command")

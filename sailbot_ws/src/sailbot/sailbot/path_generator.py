@@ -329,7 +329,8 @@ class PathGenerator(LifecycleNode):
                 10,
                 callback_group = self.subscription_callback_group)
             
-            self.buoy_cleanup_timer = self.create_timer(1.0, self.remove_old_buoys)
+            #self.buoy_cleanup_timer = self.create_timer(1.0, self.remove_old_buoys)
+            
             #self.tempt_test_timer = self.create_timer(6.0, self.set_waypoints)
 
             self.made_waypoints = False

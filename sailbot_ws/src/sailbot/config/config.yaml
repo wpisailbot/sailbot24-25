@@ -14,7 +14,7 @@ heading_select:
   ros__parameters:
     sailbot:
       heading_select:
-        use_camera_heading: False
+        use_camera_heading: True
     
 esp32_comms:
   ros__parameters:
