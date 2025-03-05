@@ -188,6 +188,7 @@ class PathGenerator(LifecycleNode):
         self.target_position_publisher: Optional[Publisher]
         self.current_path_publisher: Optional[Publisher]
         self.current_combined_path_publisher: Optional[Publisher]
+        self.path_replan_publisher: Optional[Publisher]
 
         self.current_grid_cell_publisher: Optional[Publisher]
 
@@ -257,7 +258,11 @@ class PathGenerator(LifecycleNode):
         self.declare_parameter('sailbot.pathfinding.min_path_recalculation_interval_seconds', 10.0)
         self.declare_parameter('sailbot.navigation.look_ahead_distance_meters', 5.0)
         self.declare_parameter('sailbot.navigation.look_ahead_increase_per_knot', 1.0)
-        self.declare_parameter('sailbot.navigation.buoy_snap_distance_meters', 10.0)
+
+        self.declare_parameter('sailbot.navigation.buoy_snap_distance_meters', 15.0)
+        self.declare_parameter('sailbot.navigation.bouy_detection_range_meters', 30.0)
+        self.declare_parameter('sailbot.navigation.bouy_close_to_waypoint_distance_meters', 5.0)
+
         self.declare_parameter('sailbot.navigation.loop_path', True)
         self.declare_parameter('map_name', 'quinsigamond')
 
@@ -268,7 +273,11 @@ class PathGenerator(LifecycleNode):
         self.min_path_recalculation_interval_seconds = self.get_parameter('sailbot.pathfinding.min_path_recalculation_interval_seconds').get_parameter_value().double_value
         self.look_ahead_distance_meters = self.get_parameter('sailbot.navigation.look_ahead_distance_meters').get_parameter_value().double_value
         self.look_ahead_increase_per_knot = self.get_parameter('sailbot.navigation.look_ahead_increase_per_knot').get_parameter_value().double_value
+
         self.buoy_snap_distance_meters = self.get_parameter('sailbot.navigation.buoy_snap_distance_meters').get_parameter_value().double_value
+        self.bouy_detection_range_meters = self.get_parameter('sailbot.navigation.bouy_detection_range_meters').get_parameter_value().double_value
+        self.bouy_close_to_waypoint_distance_meters = self.get_parameter('sailbot.navigation.bouy_close_to_waypoint_distance_meters').get_parameter_value().double_value
+
         self.loop_path = self.get_parameter('sailbot.navigation.loop_path').get_parameter_value().bool_value
         self.map_name = self.get_parameter('map_name').get_parameter_value().string_value
 
@@ -284,6 +293,8 @@ class PathGenerator(LifecycleNode):
             self.current_combined_path_publisher = self.create_lifecycle_publisher(GeoAndGridPath, "current_combined_path", 10)
 
             self.error_publisher = self.create_lifecycle_publisher(String, f'{self.get_name()}/error', 10)
+
+            self.path_replan_publisher = self.create_publisher(WaypointPath, 'path_replan', 10)
 
             self.airmar_heading_subscription = self.create_subscription(
                 Float64,
@@ -330,7 +341,7 @@ class PathGenerator(LifecycleNode):
                 callback_group = self.subscription_callback_group)
             
             #self.buoy_cleanup_timer = self.create_timer(1.0, self.remove_old_buoys)
-            
+
             #self.tempt_test_timer = self.create_timer(6.0, self.set_waypoints)
 
             self.made_waypoints = False
@@ -564,15 +575,15 @@ class PathGenerator(LifecycleNode):
         available within the class instance and are appropriately set before calling this function.
         """
         
-        closestDistance = float('inf')
-        closestBuoyKey = None
-        for key in self.current_buoy_positions.keys():
-            buoy_detection = self.current_buoy_positions[key]
-            distance = geodesic((buoy_detection.position.latitude, buoy_detection.position.longitude), (waypoint_msg.point.latitude, waypoint_msg.point.longitude)).meters
-            if(distance<self.buoy_snap_distance_meters and distance<closestDistance):
-                closestDistance = distance
-                closestBuoyKey = key
-        
+        # closestDistance = float('inf')
+        # closestBuoyKey = None
+        # for key in self.current_buoy_positions.keys():
+        #     buoy_detection = self.current_buoy_positions[key]
+        #     distance = geodesic((buoy_detection.position.latitude, buoy_detection.position.longitude), (waypoint_msg.point.latitude, waypoint_msg.point.longitude)).meters
+        #     if(distance<self.buoy_snap_distance_meters and distance<closestDistance):
+        #         closestDistance = distance
+        #         closestBuoyKey = key
+
         if (waypoint_msg.type == Waypoint.WAYPOINT_TYPE_INTERSECT):
             self.get_logger().info(f"before: Num grid points: {len(self.grid_points)}, num exact points: {len(self.exact_points)}")
 
@@ -594,12 +605,12 @@ class PathGenerator(LifecycleNode):
 
             corners = []
             adjustedPoint = waypoint_msg.point
-            if(closestBuoyKey is not None):
-                adjustedPoint = self.current_buoy_positions[closestBuoyKey]
-                threat_id = self.waypoint_threat_id_map[(waypoint_msg.point.latitude, waypoint_msg.point.longitude)]
-                self.get_logger().info(f"Threat of id {threat_id} being modified")
-                self.add_threat(Waypoint(point=self.current_buoy_positions[closestBuoyKey], type=waypoint_msg.type), id=threat_id)
-                self.get_logger().info(f"Snapping point to buoy: {self.current_buoy_positions[closestBuoyKey]}")
+            # if(closestBuoyKey is not None):
+            #     adjustedPoint = self.current_buoy_positions[closestBuoyKey]
+            #     threat_id = self.waypoint_threat_id_map[(waypoint_msg.point.latitude, waypoint_msg.point.longitude)]
+            #     self.get_logger().info(f"Threat of id {threat_id} being modified")
+            #     self.add_threat(Waypoint(point=self.current_buoy_positions[closestBuoyKey], type=waypoint_msg.type), id=threat_id)
+            #     self.get_logger().info(f"Snapping point to buoy: {self.current_buoy_positions[closestBuoyKey]}")
             if waypoint_msg.type == Waypoint.WAYPOINT_TYPE_CIRCLE_RIGHT:
                 corners = self.get_square_corners((previousPoint.latitude, previousPoint.longitude), (adjustedPoint.latitude, adjustedPoint.longitude), self.buoy_rounding_distance_meters, "right")
                 self.get_logger().info(f"Circle right {corners}")
@@ -640,7 +651,6 @@ class PathGenerator(LifecycleNode):
         if self.wind_angle_deg is None:
             self.get_logger().info("No wind reported yet, cannot path")
             return
-        
         # Reset look-ahead, since previous values are not relevant anymore
         self.previous_position_index = 0
         if len(self.grid_points) == 0:
@@ -693,7 +703,7 @@ class PathGenerator(LifecycleNode):
             #final_grid_path.append(segment.poses[len(segment.poses)-1].pose.position)
             #segment_endpoint_indices.append(len(segment.poses)-1)
             i+=1
-
+        
         combined = GeoAndGridPath()
         combined.geo_path = final_path
         combined.grid_path = final_grid_path
@@ -704,6 +714,61 @@ class PathGenerator(LifecycleNode):
         self.current_path = final_path
         self.current_grid_path = final_grid_path
         #self.segment_endpoint_indices = segment_endpoint_indices
+
+
+    def recalculate_for_buoy(self):
+        self.get_logger().info("Starting waypoint snapping process")
+        try:
+            updated_waypoints = WaypointPath()  # List to store updated waypoints
+
+            # Iterate through all waypoints
+            for waypoint in self.waypoints.waypoints:
+                closest_distance = float('inf')
+                closest_buoy = None
+
+                # Check each buoy for proximity to the current waypoint
+                for buoy_id, buoy_detection in self.current_buoy_positions.items():
+                    distance = geodesic(
+                        (buoy_detection.position.latitude, buoy_detection.position.longitude),
+                        (waypoint.point.latitude, waypoint.point.longitude)
+                    ).meters
+
+                    # Find the closest buoy within snapping range
+                    if distance < self.buoy_snap_distance_meters and distance < closest_distance:
+                        closest_distance = distance
+                        closest_buoy = buoy_detection
+
+                # If a close buoy was found, update the waypoint position
+                if closest_buoy is not None:
+                    #threat_id = self.waypoint_threat_id_map.get((waypoint.point.latitude, waypoint.point.longitude))
+                   # if threat_id is not None:
+                    snapped_waypoint = Waypoint(
+                        point=closest_buoy.position,  # Use the buoy's position
+                        type=waypoint.type
+                    )
+                    self.get_logger().info(f"Snapped waypoint to buoy at {closest_buoy.position}")
+                    updated_waypoints.waypoints.append(snapped_waypoint)
+                  #  else:
+                  #      self.get_logger().warning(f"No threat ID found for waypoint at ({waypoint.point.latitude}, {waypoint.point.longitude})")
+                   #     updated_waypoints.waypoints.append(waypoint)
+                else:
+                    updated_waypoints.waypoints.append(waypoint)
+           # networ.current_boat_state.current_waypoints.ClearField("waypoints")
+           # self.current_boat_state.current_waypoints.waypoints.extend(updated_waypoints)
+            self.get_logger().info("Original waypoints: " + ", ".join([f"({wp.point.latitude}, {wp.point.longitude})" for wp in self.waypoints.waypoints]))
+            self.waypoints = updated_waypoints
+            self.get_logger().info("Updated waypoints: " + ", ".join([f"({wp.point.latitude}, {wp.point.longitude})" for wp in self.waypoints.waypoints]))
+            self.grid_points = []
+            self.exact_points = []
+            self.last_exact_points = []
+            self.last_grid_points = []
+            
+            self.path_replan_publisher.publish(self.waypoints)
+            for waypoint in self.waypoints.waypoints:
+                self.calculate_exact_points_from_waypoint(waypoint)
+            self.get_logger().info("Waypoint snapping complete")
+        except Exception as e:
+            self.get_logger().error(f"Error in snapping waypoint: {str(e)}")
 
     #currently only used to clear points.
     def waypoints_callback(self, msg: WaypointPath) -> None:
@@ -835,6 +900,19 @@ class PathGenerator(LifecycleNode):
     def buoy_position_callback(self, msg: BuoyDetectionStamped) -> None:
         self.current_buoy_positions[msg.id] = msg
         self.current_buoy_times[msg.id] = time.time()
+        self.get_logger().info(f"Recieved buoy data")
+        #if bouy is close to boat
+        buoy_to_boat_distance = geodesic((msg.position.latitude, msg.position.longitude), (self.latitude, self.longitude)).meters
+        if buoy_to_boat_distance < self.bouy_detection_range_meters:
+            self.get_logger().info(f"Buoy close to boat")
+            for waypoint in self.waypoints.waypoints:
+                buoy_to_waypoint_distance = geodesic((msg.position.latitude, msg.position.longitude), (waypoint.point.latitude, waypoint.point.longitude)).meters
+                if buoy_to_waypoint_distance > self.bouy_close_to_waypoint_distance_meters and buoy_to_waypoint_distance < self.buoy_snap_distance_meters:
+                    self.get_logger().info(f"Buoy out of place, recalculating")
+                    self.recalculate_for_buoy()
+
+
+
 
     def remove_old_buoys(self):
         current_time = time.time()

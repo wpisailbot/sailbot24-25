@@ -260,6 +260,7 @@ class NetworkComms(LifecycleNode):
         self.waypoints_publisher = self.create_lifecycle_publisher(WaypointPath, 'waypoints', 10)
         self.single_waypoint_publisher = self.create_lifecycle_publisher(Waypoint, 'single_waypoint', 10)
         self.replace_waypoint_publisher = self.create_lifecycle_publisher(WaypointPath, 'replace_waypoint', 10)
+        self.mark_buoy_publisher = self.create_lifecycle_publisher(BuoyDetectionStamped, 'buoy_position', 10)
 
 
         self.autonomous_mode_publisher = self.create_lifecycle_publisher(AutonomousMode, 'autonomous_mode', 10)
@@ -409,6 +410,12 @@ class NetworkComms(LifecycleNode):
             self.reached_buoy_callback,
             10
         )
+        self.path_replan_subscription = self.create_subscription(
+            WaypointPath,
+            'path_replan',
+            self.path_replan_callback,
+            10
+        )
         self.restart_node_client = self.create_client(RestartNode, 'state_manager/restart_node', callback_group=self.callback_group_state)
         #initial dummy values, for testing
         # self.current_boat_state.latitude = 42.273822
@@ -503,7 +510,7 @@ class NetworkComms(LifecycleNode):
             self.trim_tab_comms_heartbeat,
             1)
         
-        self.buoy_cleanup_timer = self.create_timer(1.0, self.remove_old_buoys)
+        #self.buoy_cleanup_timer = self.create_timer(1.0, self.remove_old_buoys)
 
         return super().on_configure(state)
 
@@ -809,8 +816,38 @@ class NetworkComms(LifecycleNode):
         self.current_boat_state.target_track = msg.data
         #self.get_logger().info("Got target track")
     
-    def initial_cv_parameters_callback(self, msg: CVParameters):
+    def path_replan_callback(self, msg: WaypointPath):
+        self.get_logger().info("Attempting replan callback")
+        self.get_logger().info(f"Received message type: {type(msg)}")
+        self.get_logger().info(f"Received waypoints type: {type(msg.waypoints)}")
+        self.get_logger().info(f"Received waypoints: {msg.waypoints}")
+        try:
+            self.current_boat_state.current_waypoints.ClearField("waypoints")
+            
+            for waypoint in msg.waypoints:
+                # Create a new boat_state_pb2.Waypoint
+                new_waypoint = boat_state_pb2.Waypoint()
+                
+                # Set the latitude and longitude
+                new_waypoint.point.latitude = waypoint.point.latitude
+                new_waypoint.point.longitude = waypoint.point.longitude
+                
+                # Set the type based on the waypoint type
+                if waypoint.type == Waypoint.WAYPOINT_TYPE_INTERSECT:
+                    new_waypoint.type = boat_state_pb2.WaypointType.WAYPOINT_TYPE_INTERSECT
+                elif waypoint.type == Waypoint.WAYPOINT_TYPE_CIRCLE_RIGHT:
+                    new_waypoint.type = boat_state_pb2.WaypointType.WAYPOINT_TYPE_CIRCLE_RIGHT
+                elif waypoint.type == Waypoint.WAYPOINT_TYPE_CIRCLE_LEFT:
+                    new_waypoint.type = boat_state_pb2.WaypointType.WAYPOINT_TYPE_CIRCLE_LEFT
+                
+                # Append the newly created waypoint to the new WaypointPath
+                self.current_boat_state.current_waypoints.waypoints.append(new_waypoint)
 
+        except Exception as e:
+            self.get_logger().error(f"Error in waypoints update: {str(e)}")
+
+    def initial_cv_parameters_callback(self, msg: CVParameters):
+ 
         self.current_cv_parameters = boat_state_pb2.CVParameters()
         buoy_type: BuoyTypeInfo
         for buoy_type in msg.buoy_types:
@@ -869,7 +906,22 @@ class NetworkComms(LifecycleNode):
 
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def ExecuteMarkBuoyCommand(self, command: control_pb2.MarkBuoyCommand, context):
-        self.get_logger().info("Received mark buoy command")
+        try:
+            self.get_logger().info(f"Recieved mark buoy data: \n{command}")
+            detection = BuoyDetectionStamped()
+            detection.position.latitude = command.position.latitude
+            detection.position.longitude = command.position.longitude
+            detection.id = 0
+            point_msg = boat_state_pb2.Point(latitude=command.position.latitude, longitude = command.position.longitude)
+
+            self.current_boat_state.buoy_positions.append(point_msg)
+            self.get_logger().info(f"Publishing buoy: \n{detection}")
+            self.mark_buoy_publisher.publish(detection)
+        except Exception as e:
+            self.get_logger().error(f"Error in ExecuteMarkBuoyCommand: {str(e)}")
+
+
+
     
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def ExecuteRequestTackCommand(self, command: control_pb2.RequestTackCommand, context):
@@ -992,30 +1044,19 @@ class NetworkComms(LifecycleNode):
             response = control_pb2.ControlResponse()
             response.execution_status = control_pb2.ControlExecutionStatus.CONTROL_EXECUTION_SUCCESS
             self.get_logger().info(f"Searching for old")
-            for i, waypoint in enumerate(self.current_boat_state.current_waypoints.waypoints):
+            updated_path = []
+
+            for waypoint in self.current_boat_state.current_waypoints.waypoints:
                 #Find old waypoint
                 if waypoint.point.latitude == command.old_waypoint.point.latitude and waypoint.point.longitude == command.old_waypoint.point.longitude:
                     self.get_logger().info(f"Old found, replacing")
-                    updated_path = [
-                        command.new_waypoint if wp == waypoint else wp
-                        for wp in self.current_boat_state.current_waypoints.waypoints]
-                    self.current_boat_state.current_waypoints.ClearField("waypoints")# = command.new_path
-                    self.current_boat_state.current_waypoints.waypoints.extend(updated_path)
-                break
-            self.get_logger().info(f"Check 1")
-            waypoints = [command.new_waypoint, command.old_waypoint]
-            waypoints[0] = command.new_waypoint
-            waypoints[1] = command.old_waypoint
-            self.get_logger().info(f"Check 2")
-            if(command.new_waypoint.type == boat_state_pb2.WaypointType.WAYPOINT_TYPE_INTERSECT):
-                waypoints[0].type = Waypoint.WAYPOINT_TYPE_INTERSECT
-            elif(command.new_waypoint.type == boat_state_pb2.WaypointType.WAYPOINT_TYPE_CIRCLE_RIGHT):
-                waypoints[0].type = Waypoint.WAYPOINT_TYPE_CIRCLE_RIGHT
-            elif(command.new_waypoint.type == boat_state_pb2.WaypointType.WAYPOINT_TYPE_CIRCLE_LEFT):
-                waypoints[0].type = Waypoint.WAYPOINT_TYPE_CIRCLE_LEFT
+                    updated_path.append(command.new_waypoint)
+                else:
+                    updated_path.append(waypoint)
 
-            self.get_logger().info("Publishing replacement waypoint")
-            self.replace_waypoint_publisher.publish(waypoints)
+            self.current_boat_state.current_waypoints.ClearField("waypoints")# = command.new_path
+            self.current_boat_state.current_waypoints.waypoints.extend(updated_path)
+            
             return response
         except Exception as e:
             self.get_logger().error(f"Error in ExecuteReplaceWaypointCommand: {str(e)}")
