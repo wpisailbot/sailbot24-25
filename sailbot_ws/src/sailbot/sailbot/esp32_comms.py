@@ -428,6 +428,7 @@ class ESPComms(LifecycleNode):
             "rudder_angle": degrees
         }
         message_string = json.dumps(message)+'\n'
+        self.get_logger().info("Attempting Rudder Send")
         self.ser.write(message_string.encode())
 
     def ballast_pwm_callback(self, msg: Int16) -> None:
@@ -563,7 +564,8 @@ class ESPComms(LifecycleNode):
             except json.JSONDecodeError:
                 self.get_logger().warn("Error decoding JSON")
         else:
-            self.get_logger().warn("No data received within the timeout period.")
+            # self.get_logger().warn("No data received within the timeout period.")
+            pass
     
     def publish_error(self, string: str):
         error_msg = String()
