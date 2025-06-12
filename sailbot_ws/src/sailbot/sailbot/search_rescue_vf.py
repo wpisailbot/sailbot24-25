@@ -163,6 +163,8 @@ class PathFollower(LifecycleNode):
     current_path = GeoPath()
     current_grid_path = []
     segment_endpoint_indices = []
+    buoy_detection_range = 30
+
     #current_grid_cell = (16, 51)
     current_grid_cell = (16, 16)
 
@@ -220,7 +222,7 @@ class PathFollower(LifecycleNode):
         image, self.bbox = find_and_load_image(get_maps_dir(), self.map_name)
         #cv2.imwrite("/home/sailbot/after_load.jpg", image)
 
-
+        self.num_wind_readings = 0
         occupancy_grid_values = np.clip(image, 0, 1)
 
         #occupancy_grid_values = ((255 - occupancy_grid_values) * 100 / 255).astype(np.int8)
@@ -461,7 +463,7 @@ class PathFollower(LifecycleNode):
         - Updates the 'exact_points' and 'grid_points' with the waypoints for the lawnmower pattern.
         """
 
-        track_spacing=10 # Meters
+        track_spacing=25 # Meters
 
         # Calculate number of tracks needed
         num_tracks = int(2 * radius_meters / track_spacing)
@@ -644,7 +646,7 @@ class PathFollower(LifecycleNode):
         self.get_logger().info("Got single waypoint")
         self.waypoint = msg
         
-        self.generate_lawnmower_pattern(msg.point.latitude, msg.point.longitude, 50, self.wind_angle_deg)
+        self.generate_lawnmower_pattern(msg.point.latitude, msg.point.longitude, 80, self.wind_angle_deg)
         self.last_exact_points = self.exact_points.copy()
         self.last_grid_points = self.grid_points.copy()
         self.recalculate_path_from_exact_points()
@@ -654,27 +656,64 @@ class PathFollower(LifecycleNode):
 
     def true_wind_callback(self, msg: Wind) -> None:
         self.wind_angle_deg = msg.direction
-        self.set_waypoints()
+        self.num_wind_readings += 1
+        if self.num_wind_readings > 40:
+            self.set_waypoints()
 
     def buoy_position_callback(self, msg: BuoyDetectionStamped) -> None:
         self.current_buoy_positions[msg.id] = msg
         current_time = time.time()
         self.current_buoy_times[msg.id] = current_time
 
-        dist = geodesic((msg.position.latitude, msg.position.longitude), (self.latitude, self.longitude))
+        dist = geodesic((msg.position.latitude, msg.position.longitude), (self.latitude, self.longitude)).meters
+        self.get_logger().info(f"Buoy seen at: {dist}")
 
-        if(dist<2.0):
-            self.get_logger().info("Reached buoy!!!")
-            bool_msg = Bool()
-            bool_msg.data = True
-            self.reached_buoy_publisher.publish(bool_msg)
 
-        if(current_time-self.last_buoy_calculation_time>2.0):
-            self.path_to_buoy(msg)
-            self.last_exact_points = self.exact_points.copy()
-            self.last_grid_points = self.grid_points.copy()
-            self.recalculate_path_from_exact_points()
-            self.last_buoy_calculation_time = current_time
+        if dist < self.buoy_detection_range:
+            # Calculate the relative angle between the robot's current heading and the buoy
+            buoy_lat = msg.position.latitude
+            buoy_lon = msg.position.longitude
+
+            # Calculate the bearing to the buoy from the robot's current position
+            bearing = self.calculate_bearing(self.latitude, self.longitude, buoy_lat, buoy_lon)
+
+            # Check if the buoy is within a 120-degree wedge in front of the robot
+            angle_diff = abs(self.heading - bearing)
+            if angle_diff > 180:
+                angle_diff = 360 - angle_diff  # Ensure the angle is always within 0-180 degrees
+
+            if angle_diff <= 60:  # 120 degrees wedge, so 60 degrees on either side of the current heading
+                self.get_logger().info("Buoy within range and in front of the robot.")
+
+                if(dist<1.0):
+                    self.get_logger().info("Reached buoy!!!")
+                    bool_msg = Bool()
+                    bool_msg.data = True
+                    self.reached_buoy_publisher.publish(bool_msg)
+
+                if(current_time-self.last_buoy_calculation_time>2.0):
+                    self.path_to_buoy(msg)
+                    self.last_exact_points = self.exact_points.copy()
+                    self.last_grid_points = self.grid_points.copy()
+                    self.recalculate_path_from_exact_points()
+                    self.last_buoy_calculation_time = current_time
+
+    def calculate_bearing(self, lat1, lon1, lat2, lon2):
+        """
+        Calculates the bearing from one geographic point to another.
+        """
+        lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
+        
+        dlon = lon2 - lon1
+        y = math.sin(dlon) * math.cos(lat2)
+        x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
+        initial_bearing = math.atan2(y, x)
+        
+        # Convert bearing from radians to degrees
+        initial_bearing = math.degrees(initial_bearing)
+        compass_bearing = (initial_bearing + 360) % 360  # Normalize to 0-360
+        return compass_bearing
+
 
     def request_replan_callback(self, msg: Empty) -> None:
         current_time = time.time()
@@ -691,8 +730,8 @@ class PathFollower(LifecycleNode):
         if(self.made_waypoints == False):
             self.made_waypoints = True
             p1 = Waypoint()
-            p1.point.latitude = 42.846733
-            p1.point.longitude = -70.974783
+            p1.point.latitude = 42.27538
+            p1.point.longitude = -71.75590
             p1.type = Waypoint.WAYPOINT_TYPE_CIRCLE_LEFT
             self.single_waypoint_callback(p1)
 

@@ -275,6 +275,8 @@ class PathGenerator(LifecycleNode):
     #lifecycle node callbacks
     def on_configure(self, state: State) -> TransitionCallbackReturn:
         self.get_logger().info("In configure")
+        self.made_waypoints = False
+        self.num_wind_readings = 0
         try:
             self.current_grid_segment_publisher = self.create_lifecycle_publisher(PathSegment, 'current_path_segment', 10)
             self.current_segment_debug_publisher = self.create_lifecycle_publisher(GeoPathSegment, 'current_segment_debug', 10)
@@ -332,8 +334,6 @@ class PathGenerator(LifecycleNode):
             #self.buoy_cleanup_timer = self.create_timer(1.0, self.remove_old_buoys)
             
             #self.tempt_test_timer = self.create_timer(6.0, self.set_waypoints)
-
-            self.made_waypoints = False
         
         except Exception as e:
             self.get_logger().info("Error in configure")
@@ -445,7 +445,7 @@ class PathGenerator(LifecycleNode):
             self.get_logger().warn("Error getting path. Did you ask for one before the map has been loaded?")
             return None
 
-        self.get_logger().info("Path returned!")
+        #self.get_logger().info("Path returned!")
         return result
     
     def calculate_initial_bearing(self, point_A, point_B) -> float:
@@ -803,34 +803,36 @@ class PathGenerator(LifecycleNode):
         #self.tempt_test_timer.cancel()
         if(self.made_waypoints == False):
             self.made_waypoints = True
-            p1 = Waypoint()
-            p1.point.latitude = 42.846733
-            p1.point.longitude = -70.974783
-            p1.type = Waypoint.WAYPOINT_TYPE_CIRCLE_LEFT
-            self.single_waypoint_callback(p1)
+            # p1 = Waypoint()
+            # p1.point.latitude = 42.27660
+            # p1.point.longitude = -71.75705
+            # p1.type = Waypoint.WAYPOINT_TYPE_CIRCLE_RIGHT # Entrance buoy, circle right
+            # self.single_waypoint_callback(p1)
 
             p2 = Waypoint()
-            p2.point.latitude = 42.848148
-            p2.point.longitude = -70.976775
-            p2.type = Waypoint.WAYPOINT_TYPE_CIRCLE_LEFT
+            p2.point.latitude = 42.27674
+            p2.point.longitude = -71.75652
+            p2.type = Waypoint.WAYPOINT_TYPE_CIRCLE_RIGHT # First buoy, circle left
             self.single_waypoint_callback(p2)
 
             p3 = Waypoint()
-            p3.point.latitude = 42.846820
-            p3.point.longitude = -70.978182
-            p3.type = Waypoint.WAYPOINT_TYPE_CIRCLE_LEFT
+            p3.point.latitude = 42.28369
+            p3.point.longitude = -71.75566
+            p3.type = Waypoint.WAYPOINT_TYPE_CIRCLE_RIGHT # Second buoy, circle left
             self.single_waypoint_callback(p3)
 
-            p4 = Waypoint()
-            p4.point.latitude = 42.845033
-            p4.point.longitude = -70.977105
-            p4.type = Waypoint.WAYPOINT_TYPE_CIRCLE_LEFT
-            self.single_waypoint_callback(p4)
+            # p4 = Waypoint()
+            # p4.point.latitude = 42.27660
+            # p4.point.longitude = -71.75694
+            # p4.type = Waypoint.WAYPOINT_TYPE_CIRCLE_RIGHT
+            # self.single_waypoint_callback(p4)
 
     def true_wind_callback(self, msg: Wind) -> None:
         #self.get_logger().info(f"Got wind: {msg.direction}")
         self.wind_angle_deg = msg.direction
-        #self.set_waypoints()
+        self.num_wind_readings +=1      #### UNCOMMENT FOR PRECISION NAV AND ENDURANCE
+        if self.num_wind_readings > 20: ###
+            self.set_waypoints()        ###
 
     def buoy_position_callback(self, msg: BuoyDetectionStamped) -> None:
         self.current_buoy_positions[msg.id] = msg
@@ -850,7 +852,7 @@ class PathGenerator(LifecycleNode):
             return
         
         self.last_recalculation_time = time.time()
-        self.recalculate_path_from_exact_points()
+        #self.recalculate_path_from_exact_points()
 
     def latlong_to_grid_proj(self, latitude: float, longitude: float, bbox: dict, image_width: int, image_height: int, src_proj='EPSG:4326', dest_proj='EPSG:3857') -> Tuple[float, float]:
         """

@@ -194,6 +194,7 @@ class NetworkComms(LifecycleNode):
     current_buoy_positions = {}
     current_buoy_times = {}
     available_video_sources = set()
+    marked_buoy: BuoyDetectionStamped = None
 
     def __init__(self):
         super().__init__('network_comms')
@@ -205,6 +206,8 @@ class NetworkComms(LifecycleNode):
         self.waypoints_publisher: Optional[Publisher]
         self.single_waypoint_publisher: Optional[Publisher]
         self.replace_waypoint_publisher: Optional[Publisher]
+        self.mark_buoy_publisher: Optional[Publisher]
+        
 
         self.cv_parameters_publisher: Optional[Publisher]
 
@@ -260,6 +263,7 @@ class NetworkComms(LifecycleNode):
         self.waypoints_publisher = self.create_lifecycle_publisher(WaypointPath, 'waypoints', 10)
         self.single_waypoint_publisher = self.create_lifecycle_publisher(Waypoint, 'single_waypoint', 10)
         self.replace_waypoint_publisher = self.create_lifecycle_publisher(WaypointPath, 'replace_waypoint', 10)
+        self.mark_buoy_publisher = self.create_lifecycle_publisher(BuoyDetectionStamped, 'buoy_position', 10)
 
 
         self.autonomous_mode_publisher = self.create_lifecycle_publisher(AutonomousMode, 'autonomous_mode', 10)
@@ -504,6 +508,8 @@ class NetworkComms(LifecycleNode):
             1)
         
         self.buoy_cleanup_timer = self.create_timer(1.0, self.remove_old_buoys)
+        self.buoy_pulse_timer = self.create_timer(2.0, self.publish_buoy_position)
+
 
         return super().on_configure(state)
 
@@ -721,12 +727,13 @@ class NetworkComms(LifecycleNode):
         return frame
 
     def encode_frame(self, frame):
-        encoded_frame = cv2.imencode('.jpg', frame)[1].tobytes()
+        encode_param = [cv2.IMWRITE_JPEG_QUALITY, 20]  # JPEG quality (higher = better, but larger)
+        encoded_frame = cv2.imencode('.jpg', frame, encode_param)[1].tobytes()
         return encoded_frame
 
     def set_current_image(self, msg: Image):
         current_time = time.time()
-        if current_time > self.last_camera_frame_time + 0.1:
+        if current_time > self.last_camera_frame_time + 0.5:
             frame = self.decode_image(msg)
             self.last_camera_frame_shape = frame.shape
             self.last_camera_frame = self.encode_frame(frame)
@@ -745,6 +752,7 @@ class NetworkComms(LifecycleNode):
             self.update_video_sources()
         if(self.current_video_source != 'COLOR'):
             return
+        
         self.set_current_image(msg)
 
     def camera_mask_image_callback(self, msg: AnnotatedImage):
@@ -788,6 +796,13 @@ class NetworkComms(LifecycleNode):
             del self.current_buoy_times[key]
 
         self.update_buoy_state()
+
+    def publish_buoy_position(self):
+        # Create the buoy position message
+        if self.marked_buoy:
+            self.get_logger().info(f"Published buoy position: {self.marked_buoy.position.latitude}, {self.marked_buoy.position.longitude}")
+        # Publish the buoy position
+            self.mark_buoy_publisher.publish(self.marked_buoy)
 
     def rudder_angle_callback(self, msg: Int16):
         self.current_boat_state.rudder_position = msg.data
@@ -870,6 +885,18 @@ class NetworkComms(LifecycleNode):
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def ExecuteMarkBuoyCommand(self, command: control_pb2.MarkBuoyCommand, context):
         self.get_logger().info("Received mark buoy command")
+        aa = control_pb2
+        buoyPosition = BuoyDetectionStamped()
+
+        buoyPosition.position.latitude = command.position.latitude
+
+        buoyPosition.position.longitude = command.position.longitude
+        buoyPosition.id = 0
+        self.marked_buoy = buoyPosition
+        self.get_logger().info("asdas mark buoy commanddd")
+
+        
+        
     
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def ExecuteRequestTackCommand(self, command: control_pb2.RequestTackCommand, context):

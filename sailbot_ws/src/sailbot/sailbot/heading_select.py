@@ -46,14 +46,14 @@ class HeadingSelect(Node):
         self.use_camera_heading = self.get_parameter('sailbot.heading_select.use_camera_heading').get_parameter_value().bool_value
 
     def airmar_heading_callback(self, msg: Float64) -> None:
-        if(self.use_camera_heading == False):
+        if(True):
             self.heading = msg.data
             heading_msg = Float64()
             heading_msg.data = msg.data
             self.heading_publisher.publish(heading_msg)
 
     def magnetic_field_callback(self, msg: MagneticField):
-        if(self.use_camera_heading == True):
+        if(False):
             # Extract magnetic field components
             x = msg.magnetic_field.x
             y = msg.magnetic_field.y

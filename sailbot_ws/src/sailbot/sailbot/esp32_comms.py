@@ -105,7 +105,7 @@ class ESPComms(LifecycleNode):
         self.timer: Optional[Timer]
 
     def set_parameters(self) -> None:
-        self.declare_parameter('sailbot.rudder.angle_limit_deg', 30)
+        self.declare_parameter('sailbot.rudder.angle_limit_deg', 50)
 
     def get_parameters(self) -> None:
         self.rudder_angle_limit_deg = self.get_parameter('sailbot.rudder.angle_limit_deg').get_parameter_value().integer_value
@@ -215,12 +215,13 @@ class ESPComms(LifecycleNode):
     def current_path_callback(self, msg: GeoPath) -> None:
         if len(msg.points) == 0:
             self.force_neutral_position = True
+            self.get_logger().warn("Zero-length path recieved, forcing neutral")
         else:
-            self.get_logger().info("Valid path received, allowing auto trimtab movement")
+            #self.get_logger().info("Valid path received, allowing auto trimtab movement")
             self.force_neutral_position = False
 
     def autonomous_mode_callback(self, msg: AutonomousMode) -> None:
-        self.get_logger().info(f"Got autonomous mode: {msg.mode}")
+        #self.get_logger().info(f"Got autonomous mode: {msg.mode}")
         if(msg.mode == AutonomousMode.AUTONOMOUS_MODE_NONE):
             message = {
                 "state": "manual",
@@ -474,6 +475,7 @@ class ESPComms(LifecycleNode):
         self.request_tack_timer = self.create_timer(self.request_tack_timer_duration, self.request_tack_timer_callback)
 
     def request_jibe_callback(self, msg: Float64) -> None:
+        self.get_logger().info("Jibe request recieved")
         self.request_jibe_override = True
         if self.request_jibe_timer is not None:
             self.request_jibe_timer.cancel()
@@ -481,11 +483,13 @@ class ESPComms(LifecycleNode):
 
         trim_state_msg = TrimState()
         if(msg.data>0):
+            self.get_logger().info("In jibe, setting to max_drag_port")
             msg = {
                 "state": "max_drag_port" # Also switched due to mistake somewhere else. Fix?
             }
             trim_state_msg.state = TrimState.TRIM_STATE_MAX_DRAG_STARBOARD
         else:
+            self.get_logger().info("In jibe, setting to max_drag_starboard")
             msg = {
                 "state": "max_drag_starboard"
             }
@@ -503,7 +507,7 @@ class ESPComms(LifecycleNode):
             message_string = json.dumps(msg)+'\n'
             self.ser.write(message_string.encode())
         else:
-            self.get_logger().info("Trim message is None, taking no action")
+            self.get_logger().info("In jibe, Trim message is None, taking no action")
         
 
     def ballast_timer_callback(self) -> None:

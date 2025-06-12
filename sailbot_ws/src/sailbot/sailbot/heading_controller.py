@@ -291,19 +291,19 @@ class HeadingController(LifecycleNode):
         #self.rudder_simulator.compute()
         #rudder_angle = self.rudder_simulator.output['rudder_angle']
         self.rudder_angle + heading_error*self.rudder_adjustment_scale # P controller for now
-        if(self.rudder_angle>30):
-            self.rudder_angle = 30
-        elif self.rudder_angle<-30:
-            self.rudder_angle = -30
+        if(self.rudder_angle>50):
+            self.rudder_angle = 50
+        elif self.rudder_angle<-50:
+            self.rudder_angle = -50
 
         # If we are tacking, turn as hard as possible.
         # Trim tab controller will see this and skip over min_lift
         if(self.wind_direction_deg is not None):
             if(self.needs_to_tack(self.heading, target_heading ,self.wind_direction_deg)):
                 if(self.rudder_angle>0):
-                    self.rudder_angle = 31
+                    self.rudder_angle = 51
                 else:
-                    self.rudder_angle = -31
+                    self.rudder_angle = -51
                 self.request_tack_publisher.publish(Empty())
 
 

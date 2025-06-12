@@ -3,8 +3,10 @@ from rclpy.node import Node
 from geographic_msgs.msg import GeoPoint
 from sensor_msgs.msg import NavSatFix
 from sailbot_msgs.msg import GeoPath
+from std_msgs.msg import Float64
 from random import gauss, uniform
 import time
+import math
 
 class FakeMovement(Node):
     def __init__(self):
@@ -15,6 +17,8 @@ class FakeMovement(Node):
             self.path_callback,
             10)
         self.publisher = self.create_publisher(NavSatFix, 'airmar_data/lat_long', 10)
+        self.heading_publisher = self.create_publisher(Float64, 'heading', 10)
+
         self.points = []
         self.current_index = 0
         self.timer = self.create_timer(0.03, self.publish_position)
@@ -42,17 +46,28 @@ class FakeMovement(Node):
         lon = (1 - self.progress) * start_point.longitude + self.progress * end_point.longitude
 
         # Update and apply the walking error
-        self.lat_error = self.lat_error * self.error_decay + uniform(-self.error_magnitude, self.error_magnitude)
-        self.lon_error = self.lon_error * self.error_decay + uniform(-self.error_magnitude, self.error_magnitude)
-        lat += self.lat_error
-        lon += self.lon_error
+        # self.lat_error = self.lat_error * self.error_decay + uniform(-self.error_magnitude, self.error_magnitude)
+        # self.lon_error = self.lon_error * self.error_decay + uniform(-self.error_magnitude, self.error_magnitude)
+        # lat += self.lat_error
+        # lon += self.lon_error
+
+        # Compute heading (bearing angle in degrees)
+        dy = end_point.latitude - start_point.latitude
+        dx = end_point.longitude - start_point.longitude
+        heading = -math.degrees(math.atan2(dy, dx)) + 90 # Converts from radians to degrees
+        if heading < 0:
+            heading += 360  # Normalize to [0, 360] degrees
+        
+        head = Float64()
+        head.data = heading
+        self.heading_publisher.publish(head)
 
         # Publish with additional noise
         fix = NavSatFix()
         fix.header.stamp = self.get_clock().now().to_msg()
         fix.header.frame_id = 'gps'
-        fix.latitude = lat + gauss(0, 0.000005)
-        fix.longitude = lon + gauss(0, 0.000005)
+        fix.latitude = lat #+ gauss(0, 0.000005)
+        fix.longitude = lon #+ gauss(0, 0.000005)
         fix.altitude = gauss(0, 0.1)
         self.publisher.publish(fix)
 

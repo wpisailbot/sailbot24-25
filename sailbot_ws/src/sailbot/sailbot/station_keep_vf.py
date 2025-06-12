@@ -150,7 +150,7 @@ class PathFollower(LifecycleNode):
     heading = 0
     # latitude = 42.273822
     # longitude = -71.805967
-    latitude, longitude = 42.0396766107111, -71.84585650616927
+    latitude, longitude = 42.2764, -71.7569
     speed_knots = 0
     waypoints = WaypointPath()
     current_path = GeoPath()
@@ -417,7 +417,8 @@ class PathFollower(LifecycleNode):
                     pass
                 else:
                     self.exitex = True
-                    self.exit_timer = self.create_timer(285, self.exit_timer_callback)
+                    #285
+                    self.exit_timer = self.create_timer(255, self.exit_timer_callback)
 
         self.find_current_segment()
         self.current_grid_cell = new_grid_cell
@@ -685,7 +686,8 @@ class PathFollower(LifecycleNode):
         This function assumes that 'current_grid_cell' and 'grid_points' are available within the class instance 
         and are appropriately set before calling this function.
         """
-         
+        self.get_logger().info("in recalculate")
+
         if self.wind_angle_deg is None:
             self.get_logger().info("No wind reported yet, cannot path")
             return
@@ -715,6 +717,8 @@ class PathFollower(LifecycleNode):
         # final_path.points.append(GeoPoint(latitude=self.latitude, longitude=self.longitude))
 
         # Track the indices in the current path which correspond to endpoints of straight-line path segments
+        self.get_logger().info("About to make path")
+
         segment_endpoint_indices = [0]
         for segment in path_segments:
             #skip failed waypoints
@@ -904,26 +908,26 @@ class PathFollower(LifecycleNode):
             self.get_logger().info("Adding waypoints!")
             self.made_waypoints = True
             p1 = Waypoint()
-            p1.point.latitude = 42.845847
-            p1.point.longitude = -70.977440
+            p1.point.latitude = 42.27655
+            p1.point.longitude = -71.75663
             p1.type = Waypoint.WAYPOINT_TYPE_INTERSECT
             self.single_waypoint_callback(p1)
 
             p2 = Waypoint()
-            p2.point.latitude = 42.845453
-            p2.point.longitude = -70.977357
+            p2.point.latitude = 42.27616
+            p2.point.longitude = -71.75671
             p2.type = Waypoint.WAYPOINT_TYPE_INTERSECT
             self.single_waypoint_callback(p2)
 
             p3 = Waypoint()
-            p3.point.latitude = 42.845555
-            p3.point.longitude = -70.977976
+            p3.point.latitude = 42.27657
+            p3.point.longitude = -71.75709
             p3.type = Waypoint.WAYPOINT_TYPE_INTERSECT
             self.single_waypoint_callback(p3)
 
             p4 = Waypoint()
-            p4.point.latitude = 42.845864
-            p4.point.longitude = -70.977925
+            p4.point.latitude = 42.27625
+            p4.point.longitude = -71.75708
             p4.type = Waypoint.WAYPOINT_TYPE_INTERSECT
             self.single_waypoint_callback(p4)
 
@@ -978,6 +982,8 @@ class PathFollower(LifecycleNode):
         grid_cell_msg.y = float(self.current_grid_cell[1])
         self.current_grid_cell_publisher.publish(grid_cell_msg)
 
+        # self.get_logger().info("In find_current")
+
         if len(self.current_path.points) == 0:
             #self.get_logger().info("No lookAhead point for zero-length path")
             return
@@ -985,6 +991,7 @@ class PathFollower(LifecycleNode):
         #self.get_logger().info(f"Grid path length: {len(self.current_grid_path)}")
         num_points = len(self.current_path.points) 
         for i in range(self.previous_position_index, num_points-1):
+
             point = self.current_path.points[i]
             distance = great_circle((self.latitude, self.longitude), (point.latitude, point.longitude)).meters
             # Check if the next point is closer. If so, we probably skipped some points. Don't target them. 
@@ -997,6 +1004,8 @@ class PathFollower(LifecycleNode):
                 segment = PathSegment()
                 segment.start = self.current_grid_path[i]
                 segment.end = self.current_grid_path[i+1]
+                # self.get_logger().info("publishing")
+
                 self.current_grid_segment_publisher.publish(segment)
                 geoSegment = GeoPathSegment()
                 geoSegment.start = self.current_path.points[i]

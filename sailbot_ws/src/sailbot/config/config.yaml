@@ -8,7 +8,7 @@ heading_controller:
         vector_field_path_dir_weight: 2.0
         leeway_correction_limit_degrees: 10.0
         wind_restriction_replan_cutoff_degrees: 30.0
-        allow_tack: False
+        allow_tack: True
 
 heading_select:
   ros__parameters:
@@ -20,13 +20,13 @@ esp32_comms:
   ros__parameters:
     sailbot:
       rudder:
-        angle_limit_deg: 30
+        angle_limit_deg: 50
 
 path_follower:
   ros__parameters:
     sailbot:
       pathfinding:
-        buoy_rounding_distance_meters: 5.0
+        buoy_rounding_distance_meters: 10.0
         buoy_threat_size_map_units: 1.0
         buoy_threat_guassian_intensity: 0.8
         min_path_recalculation_interval_seconds: 2.0
@@ -47,7 +47,7 @@ buoy_detection:
   ros__parameters:
     sailbot:
       cv:
-        buoy_circularity_threshold: 0.6
+        buoy_circularity_threshold: 0.15
         depth_error_threshold_meters: 1.0
         buoy_detection_lifetime_seconds: 3.0
 
@@ -55,4 +55,4 @@ network_comms:
   ros__parameters:
     sailbot:
       cv:
-        buoy_circularity_threshold: 0.6
+        buoy_circularity_threshold: 0.15

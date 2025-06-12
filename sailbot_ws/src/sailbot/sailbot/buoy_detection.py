@@ -197,7 +197,7 @@ class BuoyDetection(Node):
         orangeType.buoy_diameter = 0.5
         orangeType.name = "orange"
         orangeType.hsv_bounds.lower_h = 0
-        orangeType.hsv_bounds.lower_s = 98
+        orangeType.hsv_bounds.lower_s = 172
         orangeType.hsv_bounds.lower_v = 52
         orangeType.hsv_bounds.upper_h = 113
         orangeType.hsv_bounds.upper_s = 255
@@ -320,7 +320,7 @@ class BuoyDetection(Node):
             if track.time_since_update == 0:  # Publish only for tracks updated in the last frame
                 enu_position = track.get_position()
                 latlon = enu_to_geodetic(enu_position[0], enu_position[1])
-                #self.get_logger().info(f"Publishing detection with position: {latlon}")
+                self.get_logger().info(f"Publishing detection with position: {latlon}")
                 detection = BuoyDetectionStamped()
                 detection.position.latitude = latlon[0]
                 detection.position.longitude = latlon[1]

@@ -192,7 +192,7 @@ class HeadingController(LifecycleNode):
         self.declare_parameter('sailbot.heading_control.vector_field_path_dir_weight', 2.0)
         self.declare_parameter('sailbot.heading_control.leeway_correction_limit_degrees', 10.0)
         self.declare_parameter('sailbot.heading_control.wind_restriction_replan_cutoff_degrees', 30.0)
-        self.declare_parameter('sailbot.heading_control.allow_tack', True)
+        self.declare_parameter('sailbot.heading_control.allow_tack', False)
 
 
     def get_parameters(self) -> None:
@@ -406,13 +406,14 @@ class HeadingController(LifecycleNode):
     def speed_knots_callback(self, msg: Float64):
         if msg.data<2.0:
             self.too_slow_to_tack = True
-            self.current_rudder_limit = 15
-        elif msg.data<4:
-            self.too_slow_to_tack = False
             self.current_rudder_limit = 23
-        else:
+        elif msg.data<4:
+            
             self.too_slow_to_tack = False
             self.current_rudder_limit = 30
+        else:
+            self.too_slow_to_tack = False
+            self.current_rudder_limit =51
 
     def request_tack_timer_callback(self):
         self.allow_tack = self.original_allow_tack
