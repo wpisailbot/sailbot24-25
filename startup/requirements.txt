@@ -1,0 +1,12 @@
+# Python dependencies for startup_server.py
+# ROS2 packages (install via apt/system package manager):
+# - rclpy
+# - std_msgs
+# - launch
+# - ament_index_python
+
+# Python package dependencies
+grpcio>=1.50.0
+protobuf>=4.21.0
+psutil>=5.9.0
+

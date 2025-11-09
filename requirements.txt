@@ -1,0 +1,30 @@
+# Python dependencies for sailbot24-25
+# ROS2 packages (install via apt/system package manager):
+# - rclpy
+# - std_msgs
+# - sensor_msgs
+# - geometry_msgs
+# - nav_msgs
+# - geographic_msgs
+# - lifecycle_msgs
+# - tf2_msgs
+# - cv_bridge
+# - launch_ros
+# - ament_index_python
+
+# Python package dependencies
+grpcio>=1.50.0
+protobuf>=4.21.0
+opencv-python>=4.5.0
+numpy>=1.21.0
+scipy>=1.7.0
+pyproj>=3.4.0
+geopy>=2.3.0
+shapely>=2.0.0
+filterpy>=1.4.5
+scikit-fuzzy>=0.4.2
+psutil>=5.9.0
+pyserial>=3.5
+setuptools>=65.0.0
+pytest>=7.0.0
+
