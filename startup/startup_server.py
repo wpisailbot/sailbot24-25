@@ -36,6 +36,27 @@ def get_launch_file_names(package_name):
         trace = traceback.format_exc()
         print(f'Caught exception: {e}\n{trace}')
 
+def get_map_names(package_name):
+    try:
+        package_share_directory = get_package_share_directory(package_name)
+        maps_directory = os.path.join(package_share_directory, 'maps')
+        
+        if not os.path.exists(maps_directory):
+            print(f"No maps directory found for package '{package_name}'.")
+            return []
+        
+        map_files = [f for f in os.listdir(maps_directory) if f.endswith('.png')]
+        map_names = []
+        for map_file in map_files:
+            # Extract "quinsigamond" from whatever before the ':'
+            map_name = map_file.split(':')[0]
+            map_names.append(map_name)
+        
+        return map_names
+    except Exception as e:
+        trace = traceback.format_exc()
+        print(f'Caught exception: {e}\n{trace}')
+
 
 class ROS2ControlServicer(ros2_control_pb2_grpc.ROS2ControlServicer):
     def __init__(self):
@@ -130,6 +151,12 @@ class ROS2ControlServicer(ros2_control_pb2_grpc.ROS2ControlServicer):
     async def GetLaunchFileNames(self, request, context):
         response = ros2_control_pb2.FileNameList()
         names = get_launch_file_names("sailbot")
+        response.names.extend(names)
+        return response
+    
+    async def GetMapNames(self, request, context):
+        response = ros2_control_pb2.FileNameList()
+        names = get_map_names("sailbot")
         response.names.extend(names)
         return response
 
