@@ -46,13 +46,14 @@ def get_map_names(package_name):
             return []
         
         map_files = [f for f in os.listdir(maps_directory) if f.endswith('.png')]
+        # print(f"Found map files: {map_files}")
         map_names = []
-        for map_file in map_files:
-            # Extract "quinsigamond" from whatever before the ':'
-            map_name = map_file.split(':')[0]
-            map_names.append(map_name)
+        # for map_file in map_files:
+        #     # Extract "quinsigamond" from whatever before the ':'
+        #     map_name = map_file.split(':')[0]
+        #     map_names.append(map_name)
         
-        return map_names
+        return map_files
     except Exception as e:
         trace = traceback.format_exc()
         print(f'Caught exception: {e}\n{trace}')
