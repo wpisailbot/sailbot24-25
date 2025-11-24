@@ -85,6 +85,13 @@ class ROS2ControlServicer(ros2_control_pb2_grpc.ROS2ControlServicer):
         
         print("Launching nodes...")
         self.launch_service = LaunchService()
+
+        try:
+            args_str = str(request.arguments) if request.arguments else ""
+            print(f"Arguments received: {repr(args_str)}")
+        except Exception as e:
+            print(f"Error processing arguments: {e}")
+            args_str = ""
         self.logs.write(f"Starting launch file: {request.launch_file} with arguments: {request.arguments}\n")
         package_name = request.package
         launch_file_name = request.launch_file
@@ -93,7 +100,8 @@ class ROS2ControlServicer(ros2_control_pb2_grpc.ROS2ControlServicer):
 
         launch_description = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(launch_file_path),
-            launch_arguments=dict(arg.split('=') for arg in request.arguments.split() if '=' in arg)
+            launch_arguments=dict(str(arg).split('=') for arg in args_str.split() if '=' in arg).items()
+            # launch_arguments={'map_name': 'quinsigamond'}.items()
         )
         self.launch_service.include_launch_description(launch_description)
         
