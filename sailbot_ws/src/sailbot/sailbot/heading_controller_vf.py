@@ -132,6 +132,7 @@ class HeadingController(LifecycleNode):
     wind_direction_deg = 270
     autonomous_mode = 0
     rudder_angle = 0
+    cross_track_error = 0.0 #Stored and used for Fuzzy Controller
 
     last_heading_error = 0
 
@@ -193,6 +194,7 @@ class HeadingController(LifecycleNode):
         self.declare_parameter('sailbot.heading_control.leeway_correction_limit_degrees', 10.0)
         self.declare_parameter('sailbot.heading_control.wind_restriction_replan_cutoff_degrees', 30.0)
         self.declare_parameter('sailbot.heading_control.allow_tack', True)
+        self.declare_parameter('sailbot.heading_control.max_rudder_change_per_step', 2.0)
 
 
     def get_parameters(self) -> None:
@@ -204,6 +206,7 @@ class HeadingController(LifecycleNode):
         self.wind_restriction_replan_cutoff_degrees = self.get_parameter('sailbot.heading_control.wind_restriction_replan_cutoff_degrees').get_parameter_value().double_value
         self.allow_tack = self.get_parameter('sailbot.heading_control.allow_tack').get_parameter_value().bool_value
         self.original_allow_tack = self.allow_tack
+        self.max_rudder_change_per_step = self.get_parameter('sailbot.heading_control.max_rudder_change_per_step').get_parameter_value().double_value  
         
     #lifecycle node callbacks
     def on_configure(self, state: State) -> TransitionCallbackReturn:
@@ -288,57 +291,101 @@ class HeadingController(LifecycleNode):
         
         self.timer = self.create_timer(0.1, self.timer_callback)
 
+        # FUZZY CONTROLLER SETUP
+        # Heading error: 
+        # Negative = boat points LEFT of target 
+        # Positive = boat points RIGHT of target 
         heading_error = ctrl.Antecedent(np.arange(-180, 181, 1), 'heading_error')
-        rate_of_change = ctrl.Antecedent(np.arange(-90, 91, 1), 'rate_of_change')
-        rudder_adjustment = ctrl.Consequent(np.arange(-90, 91, 1), 'rudder_adjustment')
+        heading_error['NegLarge'] = fuzz.gaussmf(heading_error.universe, -90, 40)
+        heading_error['NegSmall'] = fuzz.gaussmf(heading_error.universe, -30, 25)
+        heading_error['Zero']     = fuzz.gaussmf(heading_error.universe, 0,   18)
+        heading_error['PosSmall'] = fuzz.gaussmf(heading_error.universe, 30,  25)
+        heading_error['PosLarge'] = fuzz.gaussmf(heading_error.universe, 90,  40)
 
-        #Negative Large (NL), Negative Medium (NM), Zero (ZE), Positive Medium (PM), and Positive Large (PL)
-        # Membership functions for heading error
-        heading_error['NL'] = fuzz.gaussmf(heading_error.universe, -180, 40)  # mean = -180, std = 30
-        heading_error['NM'] = fuzz.gaussmf(heading_error.universe, -90, 40)  # mean = -100, std = 30
-        heading_error['ZE'] = fuzz.gaussmf(heading_error.universe, 0, 40)     # mean = 0, std = 30
-        heading_error['PM'] = fuzz.gaussmf(heading_error.universe, 90, 40)   # mean = 100, std = 30
-        heading_error['PL'] = fuzz.gaussmf(heading_error.universe, 180, 40) 
+        # Rate of change:
+        # Negative = turning LEFT
+        # Positive = turning RIGHT
+        rate_of_change = ctrl.Antecedent(np.arange(-30, 30, 1), "rate_of_change")
+        rate_of_change['TurnLeftFast']  = fuzz.gaussmf(rate_of_change.universe, -20, 8)
+        rate_of_change['TurnLeftSlow']  = fuzz.gaussmf(rate_of_change.universe, -8,  6)
+        rate_of_change['Stable']        = fuzz.gaussmf(rate_of_change.universe,  0,  5)
+        rate_of_change['TurnRightSlow'] = fuzz.gaussmf(rate_of_change.universe,  8,  6)
+        rate_of_change['TurnRightFast'] = fuzz.gaussmf(rate_of_change.universe, 20,  8)
 
-        # Membership functions for rate of change
-        rate_of_change['Large Negative'] = fuzz.zmf(rate_of_change.universe, -90, -30)
-        rate_of_change['Small Negative'] = fuzz.gaussmf(rate_of_change.universe, -45, 30)
-        rate_of_change['Zero'] = fuzz.pimf(rate_of_change.universe, -45, -10, 10, 45)
-        rate_of_change['Small Positive'] = fuzz.gaussmf(rate_of_change.universe, 45, 30)
-        rate_of_change['Large Positive'] = fuzz.smf(rate_of_change.universe, 30, 90)
+        # Cross track error:
+        # Negative = boat is LEFT of track 
+        # Positive = boat is RIGHT of track 
+        cross_track_error = ctrl.Antecedent(np.arange(-3, 3.01, 0.01), 'cross_track_error')
+        cross_track_error['CTELargeLeft']  = fuzz.gaussmf(cross_track_error.universe, -3, 1.0)
+        cross_track_error['CTESmallLeft']  = fuzz.gaussmf(cross_track_error.universe, -1, 0.5)
+        cross_track_error['CTEZero']       = fuzz.gaussmf(cross_track_error.universe,  0, 0.5)
+        cross_track_error['CTESmallRight'] = fuzz.gaussmf(cross_track_error.universe,  1, 0.5)
+        cross_track_error['CTELargeRight'] = fuzz.gaussmf(cross_track_error.universe,  3, 1.0)
 
-        # Membership functions for rudder angle
-        rudder_adjustment['Large Negative'] = fuzz.gaussmf(rudder_adjustment.universe, 90, 10)  # mean = -45, std = 10
-        rudder_adjustment['Small Negative'] = fuzz.gaussmf(rudder_adjustment.universe, 60, 10)  # mean = -15, std = 10
-        rudder_adjustment['Zero'] = fuzz.gaussmf(rudder_adjustment.universe, 0, 10)              # mean = 0, std = 10
-        rudder_adjustment['Small Positive'] = fuzz.gaussmf(rudder_adjustment.universe, -60, 10)   # mean = 15, std = 10
-        rudder_adjustment['Large Positive'] = fuzz.gaussmf(rudder_adjustment.universe, -90, 10)   # mean = 45, std = 10
+        # Rudder angle output:
+        # Negative rudder = boat turns LEFT
+        # Positive rudder = boat turns RIGHT
+        rudder_angle = ctrl.Consequent(np.arange(-30, 31, 1), 'rudder_angle')
+        rudder_angle['StrongLeft']  = fuzz.gaussmf(rudder_angle.universe, -30, 5)
+        rudder_angle['Left']        = fuzz.gaussmf(rudder_angle.universe, -15, 5)
+        rudder_angle['Center']      = fuzz.gaussmf(rudder_angle.universe,   0, 3)
+        rudder_angle['Right']       = fuzz.gaussmf(rudder_angle.universe,  15, 5)
+        rudder_angle['StrongRight'] = fuzz.gaussmf(rudder_angle.universe,  30, 5)
 
-        # Define the rules
-        rule1 = ctrl.Rule(heading_error['ZE'] & rate_of_change['Large Negative'], rudder_adjustment['Large Positive'])
-        rule2 = ctrl.Rule(heading_error['ZE'] & rate_of_change['Small Negative'], rudder_adjustment['Small Positive'])
-        rule3 = ctrl.Rule(heading_error['ZE'] & rate_of_change['Zero'], rudder_adjustment['Zero'])
-        rule4 = ctrl.Rule(heading_error['ZE'] & rate_of_change['Small Positive'], rudder_adjustment['Small Negative'])
-        rule5 = ctrl.Rule(heading_error['ZE'] & rate_of_change['Large Positive'], rudder_adjustment['Large Negative'])
+        rules = []
+        def R(condition, output):
+            rules.append(ctrl.Rule(condition, output))
 
-        rule6 = ctrl.Rule(heading_error['PM'] & rate_of_change['Large Negative'], rudder_adjustment['Small Positive'])
-        rule7 = ctrl.Rule(heading_error['PM'] & rate_of_change['Small Negative'], rudder_adjustment['Zero'])
-        rule8 = ctrl.Rule(heading_error['PM'] & rate_of_change['Zero'], rudder_adjustment['Small Negative'])
-        rule9 = ctrl.Rule(heading_error['PM'] & rate_of_change['Small Positive'], rudder_adjustment['Large Negative'])
-        rule10 = ctrl.Rule(heading_error['PM'] & rate_of_change['Large Positive'], rudder_adjustment['Large Negative'])
+        # Large Left Error (NegLarge) boat is LEFT of target and needs to turn RIGHT
+        R(heading_error['NegLarge'] & rate_of_change['TurnLeftFast'],  rudder_angle['Center'])
+        R(heading_error['NegLarge'] & rate_of_change['TurnLeftSlow'],  rudder_angle['Right'])
+        R(heading_error['NegLarge'] & rate_of_change['Stable'],        rudder_angle['StrongRight'])
+        R(heading_error['NegLarge'] & rate_of_change['TurnRightSlow'], rudder_angle['StrongRight'])
+        R(heading_error['NegLarge'] & rate_of_change['TurnRightFast'], rudder_angle['Right'])
 
-        rule11 = ctrl.Rule(heading_error['PL'], rudder_adjustment['Large Negative'])
+        # Small Left Error (NegSmall) boat is slightly LEFT and needs to turn slightly RIGHT 
+        R(heading_error['NegSmall'] & rate_of_change['TurnLeftFast'],  rudder_angle['Center'])
+        R(heading_error['NegSmall'] & rate_of_change['TurnLeftSlow'],  rudder_angle['Center'])
+        R(heading_error['NegSmall'] & rate_of_change['Stable'],        rudder_angle['Right'])
+        R(heading_error['NegSmall'] & rate_of_change['TurnRightSlow'], rudder_angle['Right'])
+        R(heading_error['NegSmall'] & rate_of_change['TurnRightFast'], rudder_angle['Center'])
 
-        rule12 = ctrl.Rule(heading_error['NM'] & rate_of_change['Large Positive'], rudder_adjustment['Small Negative'])
-        rule13 = ctrl.Rule(heading_error['NM'] & rate_of_change['Small Positive'], rudder_adjustment['Zero'])
-        rule14 = ctrl.Rule(heading_error['NM'] & rate_of_change['Zero'], rudder_adjustment['Small Positive'])
-        rule15 = ctrl.Rule(heading_error['NM'] & rate_of_change['Small Negative'], rudder_adjustment['Large Positive'])
-        rule16 = ctrl.Rule(heading_error['NM'] & rate_of_change['Large Negative'], rudder_adjustment['Large Positive'])
+        # Zero Error (Zero)
+        R(heading_error['Zero'] & rate_of_change['TurnLeftFast'],  rudder_angle['Right'])
+        R(heading_error['Zero'] & rate_of_change['TurnLeftSlow'],  rudder_angle['Right'])
+        R(heading_error['Zero'] & rate_of_change['Stable'],        rudder_angle['Center'])
+        R(heading_error['Zero'] & rate_of_change['TurnRightSlow'], rudder_angle['Left'])
+        R(heading_error['Zero'] & rate_of_change['TurnRightFast'], rudder_angle['Left'])
 
-        rule17 = ctrl.Rule(heading_error['NL'], rudder_adjustment['Large Positive'])
+        # Small Right Error (PosSmall) boat is slightly RIGHT and needs to turn slightly LEFT
+        R(heading_error['PosSmall'] & rate_of_change['TurnRightFast'], rudder_angle['Center'])
+        R(heading_error['PosSmall'] & rate_of_change['TurnRightSlow'], rudder_angle['Center'])
+        R(heading_error['PosSmall'] & rate_of_change['Stable'],        rudder_angle['Left'])
+        R(heading_error['PosSmall'] & rate_of_change['TurnLeftSlow'],  rudder_angle['Left'])
+        R(heading_error['PosSmall'] & rate_of_change['TurnLeftFast'],  rudder_angle['Center'])
 
-        self.rudder_control = ctrl.ControlSystem([rule1, rule2, rule3, rule4, rule5, rule6, rule7, rule8, rule9, rule10, rule11, rule12, rule13, rule14, rule15, rule16, rule17])
+        # Large Right Error (PosLarge) boat is RIGHT of target and needs to turn LEFT
+        R(heading_error['PosLarge'] & rate_of_change['TurnRightFast'], rudder_angle['Center'])
+        R(heading_error['PosLarge'] & rate_of_change['TurnRightSlow'], rudder_angle['Left'])
+        R(heading_error['PosLarge'] & rate_of_change['Stable'],        rudder_angle['StrongLeft'])
+        R(heading_error['PosLarge'] & rate_of_change['TurnLeftSlow'],  rudder_angle['StrongLeft'])
+        R(heading_error['PosLarge'] & rate_of_change['TurnLeftFast'],  rudder_angle['Left'])
+        
+        # Cross Track Error Rules
+        # Boat is LEFT of track (negative CTE) and needs to turn RIGHT
+        R(heading_error['Zero'] & rate_of_change['Stable'] & cross_track_error['CTELargeLeft'], rudder_angle['StrongRight'])
+        R(heading_error['Zero'] & rate_of_change['Stable'] & cross_track_error['CTESmallLeft'], rudder_angle['Right'])
+
+        # Boat is RIGHT of track (positive CTE) and needs to turn LEFT
+        R(heading_error['Zero'] & rate_of_change['Stable'] & cross_track_error['CTELargeRight'], rudder_angle['StrongLeft'])
+        R(heading_error['Zero'] & rate_of_change['Stable'] & cross_track_error['CTESmallRight'], rudder_angle['Left'])
+
+        # Zero Error (Zero)
+        R(heading_error['Zero'] & rate_of_change['Stable'] & cross_track_error['CTEZero'], rudder_angle['Center'])
+
+        self.rudder_control = ctrl.ControlSystem(rules)
         self.rudder_simulator = ctrl.ControlSystemSimulation(self.rudder_control)
+
         #super().on_configure(state)
         self.get_logger().info("Heading controller node configured")
         return TransitionCallbackReturn.SUCCESS
@@ -631,7 +678,7 @@ class HeadingController(LifecycleNode):
         k = k_base / 1/(1 + dist)  # Adaptive gain that decreases as distance decreases
         lambda_param = lambda_base * (1 / (1 + dist))  # Increases as the boat approaches the line
         V = -k * e + lambda_param * d
-        return V
+        return V, dist
     
     def direction_vector(self, p1, p2):
         """
@@ -712,7 +759,11 @@ class HeadingController(LifecycleNode):
         #self.get_logger().info(f"Current segment: {self.path_segment.start}, {self.path_segment.end}")
         
         # Start with a vector field
-        grid_direction_vector = self.adaptive_vector_field((self.path_segment.start.x, self.path_segment.start.y), (self.path_segment.end.x,self.path_segment.end.y), self.current_grid_cell.x, self.current_grid_cell.y, k_base=self.k_base, lambda_base=self.lambda_base)
+        grid_direction_vector, cte = self.adaptive_vector_field((self.path_segment.start.x, self.path_segment.start.y), (self.path_segment.end.x,self.path_segment.end.y), self.current_grid_cell.x, self.current_grid_cell.y, k_base=self.k_base, lambda_base=self.lambda_base)
+        
+        # set the CTE for fuzzy controller
+        self.cross_track_error = cte
+        cte_clamped = max(-3.0, min(3.0,cte))
 
         #self.get_logger().info(f"Direction vector: {grid_direction_vector}")
         target_track = self.vector_to_heading(grid_direction_vector[0], grid_direction_vector[1])
@@ -747,44 +798,62 @@ class HeadingController(LifecycleNode):
 
         target_heading_msg = Float64()
         target_heading_msg.data = target_heading
-        self.get_logger().info(f"Target heading: {target_heading}")
+        self.get_logger().info(f"Target heading: {target_heading}, CTE: {cte_clamped:.2f}")
         self.target_heading_debug_publisher.publish(target_heading_msg)
         
         #self.get_logger().info(f"Target heading: {target_heading}")
         heading_error = math.degrees(normalRelativeAngle(math.radians(self.heading-target_heading)))
 
+        # Calculate rate of change
         current_time = time.time()
-        delta_time = current_time-self.last_rudder_time
-        heading_rate_of_change = (heading_error - self.last_heading_error)/delta_time
-        self.last_heading_error = heading_error
-        #self.get_logger().info(f"Heading error: {heading_error} from heading: {self.heading} grid pos: {self.current_grid_cell} along segment: {self.path_segment}")
-        self.rudder_simulator.input['heading_error'] = heading_error
-        self.rudder_simulator.input['rate_of_change'] = heading_rate_of_change * self.rudder_overshoot_bias
-        self.rudder_simulator.compute()
-        rudder_value = self.rudder_simulator.output['rudder_adjustment']
+        delta_time = current_time - self.last_rudder_time
+        if delta_time > 0:
+            heading_rate_of_change = (heading_error - self.last_heading_error) / delta_time
+        else:
+            heading_rate_of_change = 0
 
+        self.last_heading_error = heading_error
+        self.last_rudder_time = current_time
+
+        # clamp heading rate of change for fuzzy controller
+        heading_rate_of_change_clamped = max(-30.0, min(30.0, heading_rate_of_change))
+
+
+        try:
+            self.rudder_simulator.input['heading_error'] = heading_error
+            self.rudder_simulator.input['rate_of_change'] = heading_rate_of_change_clamped
+            self.rudder_simulator.input['cross_track_error'] = cte_clamped
+            self.rudder_simulator.compute()
+            target_rudder_angle = self.rudder_simulator.output['rudder_angle']
+        except Exception as e:
+            self.get_logger().error(f"Fuzzy controller error: {e}")
+            return
+        
         last_rudder_angle = self.rudder_angle
 
         is_tack = False
         if(self.wind_direction_deg is not None):
             if(self.needs_to_tack(self.heading, target_heading, self.wind_direction_deg)):
                 is_tack = True
-        elif(self.needs_to_jibe(self.heading, target_heading, (self.wind_direction_deg+180)%360)): # This checks if we're jibing
-            self.request_jibe_publisher(Float32(self.current_jibe_dir))
+        elif(self.needs_to_jibe(self.heading, target_heading, (self.wind_direction_deg+180)%360)):
+            self.request_jibe_publisher.publish(Float32(data=self.current_jibe_dir)) 
             
-
-        #if we'd need to tack, 
-        if is_tack:
-            #If we want to allow tacking, try to. Else, turn the long way around.
-            if self.allow_tack and not self.too_slow_to_tack:
-                self.rudder_angle += rudder_value*self.rudder_adjustment_scale
-            else:
-                self.rudder_angle -= rudder_value*self.rudder_adjustment_scale
-                if(self.is_downwind): # This should only happen if we decide to jibe instead of tack, and still get stuck.
-                    self.request_jibe_publisher(Float32(self.current_tack_dir*-1.0))
-
+        
+         # determine max change rate 
+        if is_tack and self.allow_tack and not self.too_slow_to_tack:
+            max_change = 10.0 
         else:
-            self.rudder_angle += rudder_value*self.rudder_adjustment_scale
+            max_change = self.max_rudder_change_per_step  
+
+        # approach target rudder angle
+        rudder_error = target_rudder_angle - self.rudder_angle
+        
+        if abs(rudder_error) > max_change:
+            # move toward target at max rate
+            self.rudder_angle += np.sign(rudder_error) * max_change
+        else:
+            # close enough, just set it
+            self.rudder_angle = target_rudder_angle
 
         if(self.rudder_angle>self.current_rudder_limit):
             self.rudder_angle = self.current_rudder_limit
@@ -810,7 +879,7 @@ class HeadingController(LifecycleNode):
         try:
             msg.data = int(self.rudder_angle)
         except Exception as e:
-            self.get_logger().error(f"Invalid rudder value: {self.rudder_angle} rudder change this iteration: {rudder_value}, grid vector: {grid_direction_vector}, path points: {(self.path_segment.start.x, self.path_segment.start.y), (self.path_segment.end.x,self.path_segment.end.y)}")
+            self.get_logger().error(f"Invalid rudder value: {self.rudder_angle}")
             self.rudder_angle = last_rudder_angle
             msg.data = int(self.rudder_angle)
 
