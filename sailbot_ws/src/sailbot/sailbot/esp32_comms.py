@@ -10,6 +10,7 @@ from rclpy.timer import Timer
 from rclpy.subscription import Subscription
 from time import time as get_time
 
+from sailbot_ws.build.sailbot_msgs.ament_cmake_python.sailbot_msgs.sailbot_msgs import msg
 from std_msgs.msg import Int8, Int16, Empty, Float32, Float64, String
 from sailbot_msgs.msg import Wind, AutonomousMode, GeoPath, TrimState
 
@@ -57,6 +58,13 @@ class ESPComms(LifecycleNode):
     :ivar last_lift_state: Last state of the trim tab concerning lift, stored as a 'TrimState'.
     :ivar rudder_angle_limit_deg: Configurable limit for rudder angle to avoid extreme positions and stalls.
     """
+    # Wingsail LED display parameters
+    status_timer: Optional[Timer] = None
+    tailscale_connected = False
+    launch_complete = False
+    trim_auto = False
+    rudder_auto = False
+    battery_ok = True
 
     last_winds = []
     autonomous_mode = 0
@@ -113,6 +121,10 @@ class ESPComms(LifecycleNode):
     #lifecycle node callbacks
     def on_configure(self, state: State) -> TransitionCallbackReturn:
         self.get_logger().info("In configure")
+
+        # Wingsail LED update timer
+        self.status_timer = self.create_timer(1.0, self.status_timer_callback)
+        self.status_check_timer = self.create_timer(1.0, self.status_check_callback)
 
         #reset ESP32 in case it stopped working from brownout
         esp32_ports = find_esp32_serial_ports()
@@ -230,6 +242,9 @@ class ESPComms(LifecycleNode):
             self.trim_state_debug_publisher.publish(trim_state_msg)
 
         self.autonomous_mode = msg.mode
+        self.trim_auto = (msg.mode == AutonomousMode.AUTONOMOUS_MODE_TRIMTAB or 
+                            msg.mode == AutonomousMode.AUTONOMOUS_MODE_FULL)
+        self.rudder_auto = (msg.mode == AutonomousMode.AUTONOMOUS_MODE_FULL)
 
     def apparent_wind_callback(self, msg: Wind) -> None:
         #self.get_logger().info(f"Got apparent wind: {msg.direction}")
@@ -380,6 +395,38 @@ class ESPComms(LifecycleNode):
         }
         message_string = json.dumps(message)+'\n'
         self.ser.write(message_string.encode())
+
+    # Wingsail LED display helper functions
+    def send_system_status(self, tailscale_connected: bool, launch_complete: bool, 
+                       trim_auto: bool, rudder_auto: bool, battery_ok: bool):
+        """Send multiple system status flags to ESP32 in one message"""
+        message = {
+            "tailscale": tailscale_connected,
+            "launch_complete": launch_complete,
+            "trim_auto": trim_auto,
+            "rudder_auto": rudder_auto,
+            "battery_ok": battery_ok,
+        }
+        message_string = json.dumps(message) + '\n'
+        self.ser.write(message_string.encode())
+
+    def status_check_callback(self):
+        """Periodically check and update system status variables"""
+        # Update all global status variables
+        self.tailscale_connected = not self.tailscale_connected
+        self.battery_ok = not self.battery_ok
+        self.launch_complete = not self.launch_complete
+        # trim_auto and rudder_auto are already updated in autonomous_mode_callback
+        
+    def status_timer_callback(self):
+        """Called every 1 second by the timer - sends status to ESP32"""
+        self.send_system_status(
+            self.tailscale_connected,
+            self.launch_complete,
+            self.trim_auto,
+            self.rudder_auto,
+            self.battery_ok
+        )
 
     def rudder_angle_callback(self, msg: Int16) -> None:
         """
