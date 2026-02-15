@@ -106,7 +106,17 @@ class WindSmoother(LifecycleNode):
         return super().on_error(state)
     
     #end callbacks
-
+    def circular_mean(self, angles):
+        if not angles:
+            return None
+        radians = [math.radians(a) for a in angles]
+        x = [math.cos(a) for a in radians]
+        y = [math.sin(a) for a in radians]
+        mean_x = sum(x)/len(x)
+        mean_y = sum(y)/len(y)
+        angle = math.degrees(math.atan2(mean_y, mean_x))
+        return angle % 360
+    
     def median(self, lst):
         n = len(lst)
         s = sorted(lst)
@@ -132,7 +142,8 @@ class WindSmoother(LifecycleNode):
 
     def apparent_wind_callback(self, msg: Wind):
         self.update_apparent_winds(msg.direction)
-        smooth_angle = self.median(self.last_apparent_winds)
+        #smooth_angle = self.median(self.last_apparent_winds)
+        smooth_angle = self.circular_mean(self.last_apparent_winds)
         smooth = Wind()
         smooth.direction = float(smooth_angle)
         smooth.speed = msg.speed
