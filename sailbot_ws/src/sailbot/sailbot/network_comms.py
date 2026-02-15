@@ -54,6 +54,8 @@ import traceback
 import types
 from typing import Callable, Any
 import signal
+import subprocess
+import threading
 
 from sailbot_msgs.srv import RestartNode
 
@@ -413,10 +415,10 @@ class NetworkComms(LifecycleNode):
         #initial dummy values, for testing
         # self.current_boat_state.latitude = 42.273822
         # self.current_boat_state.longitude = -71.805967
-        # self.current_boat_state.latitude = 42.276842
-        # self.current_boat_state.longitude = -71.756035
-        self.current_boat_state.latitude = 42.84456
-        self.current_boat_state.longitude = -70.97622
+        self.current_boat_state.latitude = 42.28096
+        self.current_boat_state.longitude = -71.80765
+        # self.current_boat_state.latitude = 42.84456
+        # self.current_boat_state.longitude = -70.97622
 
         self.current_boat_state.current_heading = 0
         self.current_boat_state.track_degrees_true = 0
@@ -873,8 +875,23 @@ class NetworkComms(LifecycleNode):
     
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def ExecuteRequestTackCommand(self, command: control_pb2.RequestTackCommand, context):
-        self.get_logger().info("Received request tack command")
-        self.request_tack_publisher.publish(Empty())
+        # self.get_logger().info("Received request tack command")
+        self.get_logger().info(f"network_comms file: {__file__}")
+        self.get_logger().info("I am Here!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        yolo_process = subprocess.Popen(
+            ["bash", "-lc", "source /home/sailbot/Downloads/yolobuoyV2-engine-validation/.venv/bin/activate && python3 zed_yolo_viewer.py --headless-log"],
+            cwd="/home/sailbot/Downloads/yolobuoyV2-engine-validation",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        def _log_pipe(pipe):
+            for line in pipe:
+                self.get_logger().info(line.rstrip())
+        threading.Thread(target=_log_pipe, args=(yolo_process.stdout,), daemon=True).start()
+
+        # self.request_tack_publisher.publish(Empty())
 
 
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
