@@ -442,7 +442,11 @@ class ESPComms(LifecycleNode):
 
     
     def check_tailscale(self) -> bool:
-        """Check if Tailscale is connected"""
+        """Check if Tailscale is connected
+        
+        Returns:
+            bool: True if DOWN (problem), False if connected (OK)
+        """
         try:
             result = subprocess.run(
                 ['tailscale', 'status'],
@@ -451,39 +455,21 @@ class ESPComms(LifecycleNode):
                 timeout=2.0
             )
             
-            # Check if command failed
             if result.returncode != 0:
-                self.get_logger().warn(f"Tailscale status command failed: {result.stderr}")
-                return True  # Problem!
+                return True  # Command failed = problem
             
-            output = result.stdout
+            first_line = result.stdout.split('\n')[0].lower()
             
-            # Parse the output line by line
-            lines = output.strip().split('\n')
+            # Good if: has "ubuntu" AND does NOT have "offline"
+            is_good = ('ubuntu' in first_line) and ('offline' not in first_line)
             
-            for line in lines:
-                # Check if this is the Jetson's line (hostname: ubuntu)
-                if 'ubuntu' in line.lower():
-                    # Check for "active" status (not "offline")
-                    if 'active' in line.lower():
-                        self.get_logger().debug("Tailscale connected (Jetson is active)")
-                        return False  # No problem!
-                    elif 'offline' in line.lower():
-                        self.get_logger().warn("Tailscale disconnected (Jetson is offline)")
-                        return True  # Problem!
+            if not is_good:
+                self.get_logger().warn(f"Tailscale problem: {result.stdout.split(chr(10))[0]}")
             
-            # If we get here, ubuntu entry not found
-            self.get_logger().warn("Tailscale status unclear - no ubuntu entry found")
-            return True  # Problem!
+            return not is_good  # Return True if problem
             
-        except subprocess.TimeoutExpired:
-            self.get_logger().warn("Tailscale status command timed out")
-            return True
-        except FileNotFoundError:
-            self.get_logger().error("Tailscale not installed or not in PATH")
-            return True
         except Exception as e:
-            self.get_logger().error(f"Error checking Tailscale: {e}")
+            self.get_logger().error(f"Tailscale check failed: {e}")
             return True
         
     def check_node_heartbeats(self) -> bool:
