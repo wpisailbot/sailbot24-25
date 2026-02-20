@@ -10,7 +10,6 @@ from rclpy.timer import Timer
 from rclpy.subscription import Subscription
 from time import time as get_time
 
-from sailbot_ws.build.sailbot_msgs.ament_cmake_python.sailbot_msgs.sailbot_msgs import msg
 from std_msgs.msg import Int8, Int16, Empty, Float32, Float64, String
 from sailbot_msgs.msg import Wind, AutonomousMode, GeoPath, TrimState
 
@@ -57,6 +56,11 @@ class ESPComms(LifecycleNode):
     :ivar could_be_tacking: Indicates if the boat is be performing a tacking maneuver.
     :ivar last_lift_state: Last state of the trim tab concerning lift, stored as a 'TrimState'.
     :ivar rudder_angle_limit_deg: Configurable limit for rudder angle to avoid extreme positions and stalls.
+    :ivar tailscale_connected: Status of Tailscale connectivity for remote access.
+    :ivar launch_complete: Indicates whether the system has completed its launch sequence.
+    :ivar trim_auto: Indicates if the trim tab is in automatic mode.
+    :ivar rudder_auto: Indicates if the rudder is in automatic mode.
+    :ivar battery_ok: Status of the Jetson battery, indicating if it's within acceptable levels.
     """
     # Wingsail LED display parameters
     status_timer: Optional[Timer] = None
@@ -65,6 +69,17 @@ class ESPComms(LifecycleNode):
     trim_auto = False
     rudder_auto = False
     battery_ok = True
+
+    critical_nodes = [
+        "ballast_control",
+        "wind_smoother", 
+        "airmar_reader",
+        "path_follower",
+        "heading_controller"
+    ]
+    
+    last_heartbeat_times = {}
+    heartbeat_timeout = 5.0  # seconds - if no heartbeat in 5s, node is dead
 
     last_winds = []
     autonomous_mode = 0
@@ -125,6 +140,20 @@ class ESPComms(LifecycleNode):
         # Wingsail LED update timer
         self.status_timer = self.create_timer(1.0, self.status_timer_callback)
         self.status_check_timer = self.create_timer(1.0, self.status_check_callback)
+
+        current_time = get_time()
+        for node_name in self.critical_nodes:
+            self.last_heartbeat_times[node_name] = current_time
+            
+            # Subscribe to each node's heartbeat topic
+            self.create_subscription(
+                Empty,
+                f'/heartbeat/{node_name}',
+                lambda msg, name=node_name: self.heartbeat_callback(msg, name),
+                10
+            )
+        
+        
 
         #reset ESP32 in case it stopped working from brownout
         esp32_ports = find_esp32_serial_ports()
@@ -242,6 +271,7 @@ class ESPComms(LifecycleNode):
             self.trim_state_debug_publisher.publish(trim_state_msg)
 
         self.autonomous_mode = msg.mode
+        # update wingsail display status
         self.trim_auto = (msg.mode == AutonomousMode.AUTONOMOUS_MODE_TRIMTAB or 
                             msg.mode == AutonomousMode.AUTONOMOUS_MODE_FULL)
         self.rudder_auto = (msg.mode == AutonomousMode.AUTONOMOUS_MODE_FULL)
@@ -410,12 +440,83 @@ class ESPComms(LifecycleNode):
         message_string = json.dumps(message) + '\n'
         self.ser.write(message_string.encode())
 
+    
+    def check_tailscale(self) -> bool:
+        """Check if Tailscale is connected"""
+        try:
+            result = subprocess.run(
+                ['tailscale', 'status'],
+                capture_output=True,
+                text=True,
+                timeout=2.0
+            )
+            
+            # Check if command failed
+            if result.returncode != 0:
+                self.get_logger().warn(f"Tailscale status command failed: {result.stderr}")
+                return True  # Problem!
+            
+            output = result.stdout
+            
+            # Parse the output line by line
+            lines = output.strip().split('\n')
+            
+            for line in lines:
+                # Check if this is the Jetson's line (hostname: ubuntu)
+                if 'ubuntu' in line.lower():
+                    # Check for "active" status (not "offline")
+                    if 'active' in line.lower():
+                        self.get_logger().debug("Tailscale connected (Jetson is active)")
+                        return False  # No problem!
+                    elif 'offline' in line.lower():
+                        self.get_logger().warn("Tailscale disconnected (Jetson is offline)")
+                        return True  # Problem!
+            
+            # If we get here, ubuntu entry not found
+            self.get_logger().warn("Tailscale status unclear - no ubuntu entry found")
+            return True  # Problem!
+            
+        except subprocess.TimeoutExpired:
+            self.get_logger().warn("Tailscale status command timed out")
+            return True
+        except FileNotFoundError:
+            self.get_logger().error("Tailscale not installed or not in PATH")
+            return True
+        except Exception as e:
+            self.get_logger().error(f"Error checking Tailscale: {e}")
+            return True
+        
+    def check_node_heartbeats(self) -> bool:
+        """Check if all critical nodes are alive
+        
+        Returns:
+            bool: True if ANY node is dead, False if all OK
+        """
+        current_time = get_time()
+        
+        for node_name, last_time in self.last_heartbeat_times.items():
+            time_since_heartbeat = current_time - last_time
+            
+            if time_since_heartbeat > self.heartbeat_timeout:
+                self.get_logger().warn(
+                    f"Node {node_name} is DEAD! Last heartbeat {time_since_heartbeat:.1f}s ago"
+                )
+                return True  # Problem detected!
+        
+        # All nodes are alive
+        return False
+        
+
+    def heartbeat_callback(self, msg: Empty, node_name: str):
+        """Called whenever a node sends a heartbeat - just update timestamp"""
+        self.last_heartbeat_times[node_name] = get_time()
+
     def status_check_callback(self):
         """Periodically check and update system status variables"""
         # Update all global status variables
-        self.tailscale_connected = not self.tailscale_connected
-        self.battery_ok = not self.battery_ok
-        self.launch_complete = not self.launch_complete
+        self.tailscale_connected = self.check_tailscale()
+        self.battery_ok = not self.battery_ok # waiting for BMS
+        self.launch_complete = self.check_node_heartbeats()
         # trim_auto and rudder_auto are already updated in autonomous_mode_callback
         
     def status_timer_callback(self):
