@@ -10,7 +10,6 @@ from rclpy.timer import Timer
 from rclpy.subscription import Subscription
 from time import time as get_time
 
-from sailbot_ws.build.sailbot_msgs.ament_cmake_python.sailbot_msgs.sailbot_msgs import msg
 from std_msgs.msg import Int8, Int16, Empty, Float32, Float64, String
 from sailbot_msgs.msg import Wind, AutonomousMode, GeoPath, TrimState
 
