@@ -71,8 +71,6 @@ class ESPComms(LifecycleNode):
     battery_ok = True
 
     critical_nodes = [
-        "ballast_control",
-        "wind_smoother", 
         "airmar_reader",
         "path_follower",
         "heading_controller"
@@ -502,7 +500,7 @@ class ESPComms(LifecycleNode):
         # Update all global status variables
         self.tailscale_connected = self.check_tailscale()
         self.battery_ok = not self.battery_ok # waiting for BMS
-        self.launch_complete = self.check_node_heartbeats()
+        # self.launch_complete = self.check_node_heartbeats()
         # trim_auto and rudder_auto are already updated in autonomous_mode_callback
         
     def status_timer_callback(self):
