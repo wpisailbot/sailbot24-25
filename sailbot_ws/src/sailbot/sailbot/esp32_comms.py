@@ -11,7 +11,7 @@ from rclpy.subscription import Subscription
 from time import time as get_time
 
 from std_msgs.msg import Int8, Int16, Empty, Float32, Float64, String
-from sailbot_msgs.msg import Wind, AutonomousMode, GeoPath, TrimState
+from sailbot_msgs.msg import Wind, AutonomousMode, GeoPath, TrimState, BuoyDetectionStamped
 
 import serial
 import json
@@ -78,6 +78,9 @@ class ESPComms(LifecycleNode):
     
     last_heartbeat_times = {}
     heartbeat_timeout = 5.0  # seconds - if no heartbeat in 5s, node is dead
+
+    buoy_detected = False  # Buoy detection flag
+    last_buoy_detection_time = 0.0
 
     last_winds = []
     autonomous_mode = 0
@@ -174,6 +177,13 @@ class ESPComms(LifecycleNode):
 
         self.error_publisher = self.create_lifecycle_publisher(String, f'{self.get_name()}/error', 10)
 
+        # Subscribe to buoy detections
+        self.buoy_detection_subscription = self.create_subscription(
+            BuoyDetectionStamped,
+            '/buoy_position',
+            self.buoy_detection_callback,
+            10
+        )
 
         self.tt_angle_subscriber = self.create_subscription(Int16, 'tt_angle', self.tt_angle_callback, 10)
 
@@ -425,12 +435,12 @@ class ESPComms(LifecycleNode):
         self.ser.write(message_string.encode())
 
     # Wingsail LED display helper functions
-    def send_system_status(self, tailscale_connected: bool, launch_complete: bool, 
+    def send_system_status(self, tailscale_connected: bool, buoy_detected: bool, 
                        trim_auto: bool, rudder_auto: bool, battery_ok: bool):
         """Send multiple system status flags to ESP32 in one message"""
         message = {
             "tailscale": tailscale_connected,
-            "launch_complete": launch_complete,
+            "found_buoy": buoy_detected,
             "trim_auto": trim_auto,
             "rudder_auto": rudder_auto,
             "battery_ok": battery_ok,
@@ -495,9 +505,28 @@ class ESPComms(LifecycleNode):
         """Called whenever a node sends a heartbeat - just update timestamp"""
         self.last_heartbeat_times[node_name] = get_time()
 
+    def buoy_detection_callback(self, msg: BuoyDetectionStamped):
+        """Called whenever a buoy is detected"""
+        self.last_buoy_detection_time = get_time()
+        self.buoy_detected = True
+        
+        self.get_logger().info(
+            f"Buoy detected! ID: {msg.id}, "
+            f"Lat: {msg.position.latitude:.6f}, "
+            f"Lon: {msg.position.longitude:.6f}"
+        )
+
     def status_check_callback(self):
         """Periodically check and update system status variables"""
         # Update all global status variables
+
+        # Check if we've seen a buoy recently (within 5 seconds)
+        current_time = get_time()
+        time_since_buoy = current_time - self.last_buoy_detection_time
+        
+        # Buoy detected if we saw one in last 5 seconds
+        self.buoy_detected = (time_since_buoy < 10.0)
+
         self.tailscale_connected = self.check_tailscale()
         self.battery_ok = not self.battery_ok # waiting for BMS
         # self.launch_complete = self.check_node_heartbeats()
@@ -507,7 +536,7 @@ class ESPComms(LifecycleNode):
         """Called every 1 second by the timer - sends status to ESP32"""
         self.send_system_status(
             self.tailscale_connected,
-            self.launch_complete,
+            self.buoy_detected,
             self.trim_auto,
             self.rudder_auto,
             self.battery_ok

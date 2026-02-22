@@ -41,8 +41,8 @@ def generate_launch_description():
     )
     cv_node = Node(
         package='sailbot',
-        executable='buoy_detection',
-        name='buoy_detection',
+        executable='buoy_detection_yolo',
+        name='buoy_detection_yolo',
         namespace='',
         output='screen',
     )
