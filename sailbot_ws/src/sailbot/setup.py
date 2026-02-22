@@ -52,6 +52,7 @@ setup(
             'main_behavior = sailbot.behaviors.sailbot_behavior:main',
             'wind_smoother = sailbot.wind_smoother:main',
             'buoy_detection = sailbot.buoy_detection:main',
+            'buoy_detection_yolo = sailbot.buoy_detection_yolo:main',
             'fake_movement = sailbot.fake_movement:main',
             'heading_select = sailbot.heading_select:main',
             'search_rescue_vf = sailbot.search_rescue_vf:main',

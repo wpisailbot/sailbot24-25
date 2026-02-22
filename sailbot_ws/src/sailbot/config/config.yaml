@@ -50,6 +50,29 @@ buoy_detection:
         buoy_circularity_threshold: 0.6
         depth_error_threshold_meters: 1.0
         buoy_detection_lifetime_seconds: 3.0
+        yolo:
+          conf_threshold: 0.25
+          iou_threshold: 0.45
+          imgsz: 640
+          device: "0"
+          max_detection_distance_meters: 120.0
+          max_association_distance_meters: 3.0
+
+buoy_detection_yolo:
+  ros__parameters:
+    sailbot:
+      cv:
+        buoy_circularity_threshold: 0.6
+        depth_error_threshold_meters: 1.0
+        buoy_detection_lifetime_seconds: 3.0
+        yolo:
+          engine_path: "/home/sailbot/Downloads/yolobuoyV2-engine-validation/my_model_fp16.engine"
+          conf_threshold: 0.25
+          iou_threshold: 0.45
+          imgsz: 640
+          device: "0"
+          max_detection_distance_meters: 120.0
+          max_association_distance_meters: 3.0
 
 network_comms:
   ros__parameters:
