@@ -556,7 +556,7 @@ class ESPComms(LifecycleNode):
         # Buoy detected if we saw one in last 5 seconds
         self.buoy_detected = (time_since_buoy < 5.0)
 
-        self.tailscale_connected = self.check_tailscale()
+        # self.tailscale_connected = self.check_tailscale()
         self.battery_ok = not self.battery_ok # waiting for BMS
         # self.launch_complete = self.check_node_heartbeats()
         # trim_auto and rudder_auto are already updated in autonomous_mode_callback
@@ -701,9 +701,11 @@ class ESPComms(LifecycleNode):
                 self.send_damper_can_command(should_activate)
 
     def send_damper_can_command(self, activate: bool):
-        return
+        # TODO: Fill in with actual CAN command based on hardware spec
+        self.tailscale_connected = activate
     
     def roll_callback(self, msg: Float64) -> None:
+        self.get_logger().info(f"Got roll: {msg.data}")
         roll_dict = {
                 "roll": msg.data
         }
