@@ -18,6 +18,7 @@ import json
 import traceback
 import serial.tools.list_ports
 import subprocess
+import can  # pip install python-can
 
 serial_port = '/dev/ttyTHS1'
 baud_rate = 115200 
@@ -62,6 +63,20 @@ class ESPComms(LifecycleNode):
     :ivar rudder_auto: Indicates if the rudder is in automatic mode.
     :ivar battery_ok: Status of the Jetson battery, indicating if it's within acceptable levels.
     """
+    # damper CAN bus tracking variables
+    can_bus = None
+    last_roll_readings = []
+    max_roll_samples = 30  
+    damper_active = False
+
+    last_roll_values_timeout = 10.0
+    oscillation_threshold_deg = 10.0
+    oscillation_count_threshold = 3
+    oscillation_time_window = 8.0
+    last_oscillation_times = []
+    last_roll_direction = 0           # -1 = port, 0 = neutral, 1 = starboard
+    speed = 0.0
+
     # Wingsail LED display parameters
     status_timer: Optional[Timer] = None
     tailscale_connected = False
@@ -154,7 +169,22 @@ class ESPComms(LifecycleNode):
                 10
             )
         
+        # Initialize CAN bus for damper control
+        try:
+            self.can_bus = can.interface.Bus(
+                channel='can0',  # Change to match hardware setup
+                bustype='socketcan',
+                bitrate=500000  # Change to match hardware spec (125000, 250000, 500000, 1000000)
+            )
+            self.get_logger().info("CAN bus initialized successfully")
+        except Exception as e:
+            self.get_logger().error(f"Failed to initialize CAN: {e}")
+    
+        self.roll_subscription = self.create_subscription(Float64, '/airmar_data/roll',self.roll_callback, 10)
+        self.speed_subscription = self.create_subscription(Float64, '/airmar_data/speed_knots',self.speed_callback, 10)
         
+        self.damper_check_timer = self.create_timer(0.5,self.damper_check_callback)
+        # End CAN bus initialization
 
         #reset ESP32 in case it stopped working from brownout
         esp32_ports = find_esp32_serial_ports()
@@ -200,12 +230,6 @@ class ESPComms(LifecycleNode):
             self.current_path_callback,
             10)
         
-        self.roll_subscription = self.create_subscription(
-            Float64,
-            'airmar_data/roll',
-            self.roll_callback,
-            10)
-        
         self.request_tack_subscription = self.create_subscription(
             Empty,
             'request_tack',
@@ -247,6 +271,11 @@ class ESPComms(LifecycleNode):
         self.destroy_subscription(self.tt_angle_subscriber)
         self.destroy_timer(self.heartbeat_timer)
         self.destroy_timer(self.ballast_timer)
+        self.destroy_timer(self.status_timer)
+        self.destroy_timer(self.status_check_timer)
+        self.destroy_timer(self.damper_check_timer)
+        if self.can_bus is not None:
+            self.can_bus.shutdown()
 
         return TransitionCallbackReturn.SUCCESS
 
@@ -525,7 +554,7 @@ class ESPComms(LifecycleNode):
         time_since_buoy = current_time - self.last_buoy_detection_time
         
         # Buoy detected if we saw one in last 5 seconds
-        self.buoy_detected = (time_since_buoy < 10.0)
+        self.buoy_detected = (time_since_buoy < 5.0)
 
         self.tailscale_connected = self.check_tailscale()
         self.battery_ok = not self.battery_ok # waiting for BMS
@@ -601,12 +630,94 @@ class ESPComms(LifecycleNode):
         message_string = json.dumps(message)+'\n'
         self.ser.write(message_string.encode())
     
+    def damper_check_callback(self):
+        """Check if damper should activate based on IMU data"""
+        if self.speed > 10.0:
+            self.damper_active = False
+            self.send_damper_can_command(False)
+            return
+        else:
+            # Check if we have enough data
+            if len(self.last_roll_readings) < 5:
+                return
+            
+            current_time, current_roll = self.last_roll_readings[-1]
+
+            # Clean up old readings (remove values older than timeout)
+            cutoff_time = current_time - self.last_roll_values_timeout
+            self.last_roll_readings = [
+                (t, v) for t, v in self.last_roll_readings 
+                if t >= cutoff_time
+            ]
+
+            roll_values = [v for t, v in self.last_roll_readings]
+            neutral_zone = 1.0  # degrees
+            if current_roll > neutral_zone:
+                current_direction = 1  # Starboard
+            elif current_roll < -neutral_zone:
+                current_direction = -1  # Port
+            else:
+                current_direction = 0  # Neutral
+
+            # if current != 0, and different directions, then we crossed zero.
+            crossed_zero = (current_direction != 0 and self.last_roll_direction != current_direction)
+
+            if crossed_zero:
+                # Find peak from previous direction
+                if self.last_roll_direction == 1:
+                    peak = max(roll_values)  # Was starboard, find max
+                elif self.last_roll_direction == -1:
+                    peak = min(roll_values)
+                else:  # last_roll_direction == 0 (first crossing)
+                    # Use most extreme value (furthest from 0)
+                    peak = max(roll_values, key=abs)
+                
+                # Calculate amplitude
+                amplitude = abs(peak - current_roll)
+                
+                # Check if amplitude is large enough
+                if amplitude >= self.oscillation_threshold_deg:
+                    self.last_oscillation_times.append(current_time)
+                    self.get_logger().info(f"✓ Oscillation detected! Amplitude: {amplitude:.1f}°")
+
+            if current_direction != 0:
+                # update direction
+                self.last_roll_direction = current_direction
+            
+            # Clean up old oscillations
+            self.last_oscillation_times = [
+                t for t in self.last_oscillation_times 
+                if (current_time - t) <= self.oscillation_time_window
+            ]
+
+            should_activate = False 
+            recent_oscillation_count = len(self.last_oscillation_times)
+            if recent_oscillation_count >= self.oscillation_count_threshold:
+                should_activate = True
+            
+            # If state changed, send CAN command
+            if should_activate != self.damper_active:
+                self.damper_active = should_activate
+                self.send_damper_can_command(should_activate)
+
+    def send_damper_can_command(self, activate: bool):
+        return
+    
     def roll_callback(self, msg: Float64) -> None:
-        msg = {
+        roll_dict = {
                 "roll": msg.data
         }
-        message_string = json.dumps(msg)+'\n'
+        message_string = json.dumps(roll_dict)+'\n'
         self.ser.write(message_string.encode())
+
+        # Store roll readings for damper control
+        current_time = get_time()
+        self.last_roll_readings.append((current_time, msg.data))
+        
+
+    def speed_callback(self, msg: Float64):
+        self.speed = msg.data
+        
     
     def request_tack_timer_callback(self):
         self.request_tack_override = False
