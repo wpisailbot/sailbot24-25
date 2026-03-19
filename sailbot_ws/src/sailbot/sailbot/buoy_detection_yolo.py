@@ -51,10 +51,9 @@ from sailbot_msgs.msg import AnnotatedImage, BuoyDetectionStamped, BuoyTypeInfo,
 # 2) source .venv/bin/activate
 # 3) source /opt/ros/humble/setup.bash
 # 4) source /home/sailbot/sailbot24-25/sailbot_ws/install/setup.bash
-# 5) (if TensorRT Python bindings are from system dist-packages)
+# 5) (if TensorRT Python bindings are from system dist-packages) [dont do this]
 #    export PYTHONPATH="/usr/lib/python3/dist-packages:/usr/lib/python3.10/dist-packages:$PYTHONPATH"
-# 6) python /home/sailbot/sailbot24-25/sailbot_ws/src/sailbot/sailbot/buoy_detection_yolo.py \
-#      --ros-args --params-file /home/sailbot/sailbot24-25/sailbot_ws/src/sailbot/config/config.yaml
+# 6) python /home/sailbot/sailbot24-25/sailbot_ws/src/sailbot/sailbot/buoy_detection_yolo.py \      --ros-args --params-file /home/sailbot/sailbot24-25/sailbot_ws/src/sailbot/config/config.yaml
 # 7) In a second sourced terminal:
 #    ros2 topic hz /cv_mask
 #    ros2 topic echo /buoy_position
