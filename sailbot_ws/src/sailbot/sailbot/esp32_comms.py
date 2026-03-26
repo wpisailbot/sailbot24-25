@@ -585,13 +585,17 @@ class ESPComms(LifecycleNode):
         """Called every 1 second by the timer - sends status to ESP32"""
 
         # check buoy distance
-        distance = geodesic(
-            (self.latitude, self.longitude),
-            (self.buoy_latitude, self.buoy_longitude)).meters
+        if not self.buoy_detected:
+            distance = geodesic(
+                (self.latitude, self.longitude),
+                (self.buoy_latitude, self.buoy_longitude)).meters
 
-        if distance < 2.0:
-            self.get_logger().info(f"Buoy is very close! Distance: {distance:.2f} meters")
-            self.reach_buoy = True
+            self.get_logger().info(f"Distance to buoy: {distance:.2f} meters")
+            if distance < 2.0:
+                self.get_logger().info(f"Buoy is very close! Distance: {distance:.2f} meters")
+                self.reach_buoy = True
+        else:
+                self.reach_buoy = False
 
         self.send_system_status(
             self.tailscale_connected,
@@ -690,7 +694,7 @@ class ESPComms(LifecycleNode):
                 current_direction = -1  # Port
             else:
                 current_direction = 0  # Neutral
-            self.get_logger().info(f"current direction: {current_direction}")
+            # self.get_logger().info(f"current direction: {current_direction}")
 
             # if current != 0, and different directions, then we crossed zero.
             crossed_zero = (current_direction != 0 and self.last_roll_direction != current_direction)
@@ -711,14 +715,13 @@ class ESPComms(LifecycleNode):
                 # Check if amplitude is large enough
                 if amplitude >= self.oscillation_threshold_deg:
                     self.last_oscillation_times.append(current_time)
-                    self.get_logger().info(f"✓ Oscillation detected! Amplitude: {amplitude:.1f}°")
+                    # self.get_logger().info(f"✓ Oscillation detected! Amplitude: {amplitude:.1f}°")
                 
                 # Check if it's a SMALL oscillation
                 elif amplitude >= self.small_oscillation_threshold_deg:
                     self.last_small_oscillation_times.append(current_time)
-                    self.get_logger().info(
-                        f"🟡 Small oscillation. Amplitude: {amplitude:.1f}° "
-                    )
+                    # self.get_logger().info(
+                    #     f"🟡 Small oscillation. Amplitude: {amplitude:.1f}° ")
                 
 
             if current_direction != 0:
@@ -744,7 +747,7 @@ class ESPComms(LifecycleNode):
             if recent_small_oscillation_count < self.oscillation_count_threshold:
                 should_activate = False
 
-            self.get_logger().info(f"Damper command: {should_activate}")
+            # self.get_logger().info(f"Damper command: {should_activate}")
             # If state changed, send CAN command
             if should_activate != self.damper_active:
                 self.damper_active = should_activate
@@ -765,7 +768,7 @@ class ESPComms(LifecycleNode):
         self.tailscale_connected = activate
     
     def roll_callback(self, msg: Float64) -> None:
-        self.get_logger().info(f"Got roll: {msg.data}")
+        # self.get_logger().info(f"Got roll: {msg.data}")
         roll_dict = {
                 "roll": msg.data
         }
