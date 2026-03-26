@@ -663,6 +663,8 @@ class PathFollower(LifecycleNode):
 
         dist = geodesic((msg.position.latitude, msg.position.longitude), (self.latitude, self.longitude))
 
+        self.get_logger().info("Buoy distance: "+str(dist))
+
         if(dist<2.0):
             self.get_logger().info("Reached buoy!!!")
             bool_msg = Bool()

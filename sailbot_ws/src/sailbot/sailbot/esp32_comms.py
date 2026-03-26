@@ -9,9 +9,8 @@ from rclpy.lifecycle import TransitionCallbackReturn
 from rclpy.timer import Timer
 from rclpy.subscription import Subscription
 from time import time as get_time
-from geopy.distance import geodesic
 
-from std_msgs.msg import Int8, Int16, Empty, Float32, Float64, String
+from std_msgs.msg import Int8, Int16, Empty, Float32, Float64, String, Bool
 from sensor_msgs.msg import NavSatFix
 from sailbot_msgs.msg import Wind, AutonomousMode, GeoPath, TrimState, BuoyDetectionStamped
 
@@ -101,10 +100,6 @@ class ESPComms(LifecycleNode):
     buoy_detected = False  # Buoy detection flag
     reach_buoy = False
     last_buoy_detection_time = 0.0
-    latitude = 0.0
-    longitude = 0.0
-    buoy_latitude = 0.0
-    buoy_longitude = 0.0
 
 
     last_winds = []
@@ -191,7 +186,7 @@ class ESPComms(LifecycleNode):
         self.roll_subscription = self.create_subscription(Float64, '/airmar_data/roll',self.roll_callback, 10)
         self.speed_subscription = self.create_subscription(Float64, '/airmar_data/speed_knots',self.speed_callback, 10)
         
-        self.gps_subscription = self.create_subscription(Float64, '/airmar_data/lat_long',self.gps_callback, 10)
+        self.reach_buoy_subscription = self.create_subscription(Bool, 'reached_buoy', self.reach_buoy_callback, 10)
         
         self.damper_check_timer = self.create_timer(0.5,self.damper_check_callback)
         # End CAN bus initialization
@@ -550,20 +545,16 @@ class ESPComms(LifecycleNode):
         self.last_buoy_detection_time = get_time()
         self.buoy_detected = True
         
-        self.get_logger().info(
-            f"Buoy detected! ID: {msg.id}, "
-            f"Lat: {msg.position.latitude:.6f}, "
-            f"Lon: {msg.position.longitude:.6f}"
-        )
+        # self.get_logger().info(
+        #     f"Buoy detected! ID: {msg.id}, "
+        #     f"Lat: {msg.position.latitude:.6f}, "
+        #     f"Lon: {msg.position.longitude:.6f}"
+        # )
 
-        # update buoy position
-        self.buoy_latitude = msg.position.latitude
-        self.buoy_longitude = msg.position.longitude
-
-    def gps_callback(self, msg: NavSatFix):
-        # update boat position
-        self.latitude = msg.latitude
-        self.longitude = msg.longitude
+    def reach_buoy_callback(self, msg: Bool):
+        """Called when we reach the buoy"""
+        self.reach_buoy = msg.data
+        self.get_logger().info(f"Reached buoy: {self.reach_buoy}")
 
     def status_check_callback(self):
         """Periodically check and update system status variables"""
@@ -584,18 +575,6 @@ class ESPComms(LifecycleNode):
     def status_timer_callback(self):
         """Called every 1 second by the timer - sends status to ESP32"""
 
-        # check buoy distance
-        if not self.buoy_detected:
-            distance = geodesic(
-                (self.latitude, self.longitude),
-                (self.buoy_latitude, self.buoy_longitude)).meters
-
-            self.get_logger().info(f"Distance to buoy: {distance:.2f} meters")
-            if distance < 2.0:
-                self.get_logger().info(f"Buoy is very close! Distance: {distance:.2f} meters")
-                self.reach_buoy = True
-        else:
-                self.reach_buoy = False
 
         self.send_system_status(
             self.tailscale_connected,
