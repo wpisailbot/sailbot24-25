@@ -102,7 +102,10 @@ class ESPComms(LifecycleNode):
     reach_buoy = False
     last_buoy_detection_time = 0.0
     latitude = 0.0
-    selflongitude = 0.0
+    longitude = 0.0
+    buoy_latitude = 0.0
+    buoy_longitude = 0.0
+
 
     last_winds = []
     autonomous_mode = 0
@@ -552,15 +555,13 @@ class ESPComms(LifecycleNode):
             f"Lat: {msg.position.latitude:.6f}, "
             f"Lon: {msg.position.longitude:.6f}"
         )
-        distance = geodesic(
-            (self.latitude, self.longitude),
-            (msg.position.latitude, msg.position.longitude)).meters
 
-        if distance < 2.0:
-            self.get_logger().info(f"Buoy is very close! Distance: {distance:.2f} meters")
-            self.reach_buoy = True
+        # update buoy position
+        self.buoy_latitude = msg.position.latitude
+        self.buoy_longitude = msg.position.longitude
 
     def gps_callback(self, msg: NavSatFix):
+        # update boat position
         self.latitude = msg.latitude
         self.longitude = msg.longitude
 
@@ -582,6 +583,16 @@ class ESPComms(LifecycleNode):
         
     def status_timer_callback(self):
         """Called every 1 second by the timer - sends status to ESP32"""
+
+        # check buoy distance
+        distance = geodesic(
+            (self.latitude, self.longitude),
+            (self.buoy_latitude, self.buoy_longitude)).meters
+
+        if distance < 2.0:
+            self.get_logger().info(f"Buoy is very close! Distance: {distance:.2f} meters")
+            self.reach_buoy = True
+
         self.send_system_status(
             self.tailscale_connected,
             self.buoy_detected,
@@ -732,7 +743,7 @@ class ESPComms(LifecycleNode):
                 should_activate = True
             if recent_small_oscillation_count < self.oscillation_count_threshold:
                 should_activate = False
-                
+
             self.get_logger().info(f"Damper command: {should_activate}")
             # If state changed, send CAN command
             if should_activate != self.damper_active:
