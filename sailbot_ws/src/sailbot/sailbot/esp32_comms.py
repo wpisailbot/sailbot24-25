@@ -554,7 +554,7 @@ class ESPComms(LifecycleNode):
     def reach_buoy_callback(self, msg: Bool):
         """Called when we reach the buoy"""
         self.reach_buoy = msg.data
-        self.get_logger().info(f"Reached buoy: {self.reach_buoy}")
+        # self.get_logger().info(f"Reached buoy: {self.reach_buoy}")
 
     def status_check_callback(self):
         """Periodically check and update system status variables"""
