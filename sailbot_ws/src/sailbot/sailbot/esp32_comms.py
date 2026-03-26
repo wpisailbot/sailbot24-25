@@ -9,8 +9,10 @@ from rclpy.lifecycle import TransitionCallbackReturn
 from rclpy.timer import Timer
 from rclpy.subscription import Subscription
 from time import time as get_time
+from geopy.distance import geodesic
 
 from std_msgs.msg import Int8, Int16, Empty, Float32, Float64, String
+from sensor_msgs.msg import NavSatFix
 from sailbot_msgs.msg import Wind, AutonomousMode, GeoPath, TrimState, BuoyDetectionStamped
 
 import serial
@@ -71,9 +73,11 @@ class ESPComms(LifecycleNode):
 
     last_roll_values_timeout = 10.0
     oscillation_threshold_deg = 10.0
-    oscillation_count_threshold = 3
+    small_oscillation_threshold_deg = 5.0 
+    oscillation_count_threshold = 5
     oscillation_time_window = 8.0
     last_oscillation_times = []
+    last_small_oscillation_times = []  
     last_roll_direction = 0           # -1 = port, 0 = neutral, 1 = starboard
     speed = 0.0
 
@@ -95,7 +99,10 @@ class ESPComms(LifecycleNode):
     heartbeat_timeout = 5.0  # seconds - if no heartbeat in 5s, node is dead
 
     buoy_detected = False  # Buoy detection flag
+    reach_buoy = False
     last_buoy_detection_time = 0.0
+    latitude = 0.0
+    selflongitude = 0.0
 
     last_winds = []
     autonomous_mode = 0
@@ -170,18 +177,18 @@ class ESPComms(LifecycleNode):
             )
         
         # Initialize CAN bus for damper control
+        # RX 143 Tx145
         try:
-            self.can_bus = can.interface.Bus(
-                channel='can0',  # Change to match hardware setup
-                bustype='socketcan',
-                bitrate=500000  # Change to match hardware spec (125000, 250000, 500000, 1000000)
-            )
-            self.get_logger().info("CAN bus initialized successfully")
+            self.can_bus = can.interface.Bus(interface='socketcan', channel='vcan0', bitrate=500000)
+
+            self.get_logger().info("CAN bus initialized successfully")  
         except Exception as e:
             self.get_logger().error(f"Failed to initialize CAN: {e}")
     
         self.roll_subscription = self.create_subscription(Float64, '/airmar_data/roll',self.roll_callback, 10)
         self.speed_subscription = self.create_subscription(Float64, '/airmar_data/speed_knots',self.speed_callback, 10)
+        
+        self.gps_subscription = self.create_subscription(Float64, '/airmar_data/lat_long',self.gps_callback, 10)
         
         self.damper_check_timer = self.create_timer(0.5,self.damper_check_callback)
         # End CAN bus initialization
@@ -465,7 +472,7 @@ class ESPComms(LifecycleNode):
 
     # Wingsail LED display helper functions
     def send_system_status(self, tailscale_connected: bool, buoy_detected: bool, 
-                       trim_auto: bool, rudder_auto: bool, battery_ok: bool):
+                       trim_auto: bool, rudder_auto: bool, battery_ok: bool, reach_buoy:bool):
         """Send multiple system status flags to ESP32 in one message"""
         message = {
             "tailscale": tailscale_connected,
@@ -473,6 +480,7 @@ class ESPComms(LifecycleNode):
             "trim_auto": trim_auto,
             "rudder_auto": rudder_auto,
             "battery_ok": battery_ok,
+            "reach_buoy": reach_buoy
         }
         message_string = json.dumps(message) + '\n'
         self.ser.write(message_string.encode())
@@ -544,6 +552,17 @@ class ESPComms(LifecycleNode):
             f"Lat: {msg.position.latitude:.6f}, "
             f"Lon: {msg.position.longitude:.6f}"
         )
+        distance = geodesic(
+            (self.latitude, self.longitude),
+            (msg.position.latitude, msg.position.longitude)).meters
+
+        if distance < 2.0:
+            self.get_logger().info(f"Buoy is very close! Distance: {distance:.2f} meters")
+            self.reach_buoy = True
+
+    def gps_callback(self, msg: NavSatFix):
+        self.latitude = msg.latitude
+        self.longitude = msg.longitude
 
     def status_check_callback(self):
         """Periodically check and update system status variables"""
@@ -568,7 +587,8 @@ class ESPComms(LifecycleNode):
             self.buoy_detected,
             self.trim_auto,
             self.rudder_auto,
-            self.battery_ok
+            self.battery_ok,
+            self.reach_buoy
         )
 
     def rudder_angle_callback(self, msg: Int16) -> None:
@@ -679,6 +699,14 @@ class ESPComms(LifecycleNode):
                 if amplitude >= self.oscillation_threshold_deg:
                     self.last_oscillation_times.append(current_time)
                     self.get_logger().info(f"✓ Oscillation detected! Amplitude: {amplitude:.1f}°")
+                
+                # Check if it's a SMALL oscillation
+                elif amplitude >= self.small_oscillation_threshold_deg:
+                    self.last_small_oscillation_times.append(current_time)
+                    self.get_logger().info(
+                        f"🟡 Small oscillation. Amplitude: {amplitude:.1f}° "
+                    )
+                
 
             if current_direction != 0:
                 # update direction
@@ -690,10 +718,19 @@ class ESPComms(LifecycleNode):
                 if (current_time - t) <= self.oscillation_time_window
             ]
 
-            should_activate = False 
+            self.last_small_oscillation_times = [
+                t for t in self.last_small_oscillation_times 
+                if (current_time - t) <= self.small_oscillation_time_window
+            ]
+
+            # should_activate = False 
             recent_oscillation_count = len(self.last_oscillation_times)
+            recent_small_oscillation_count = len(self.last_small_oscillation_times)
             if recent_oscillation_count >= self.oscillation_count_threshold:
                 should_activate = True
+            
+            if recent_small_oscillation_count < self.oscillation_count_threshold:
+                should_activate = False
             
             # If state changed, send CAN command
             if should_activate != self.damper_active:
@@ -702,6 +739,16 @@ class ESPComms(LifecycleNode):
 
     def send_damper_can_command(self, activate: bool):
         # TODO: Fill in with actual CAN command based on hardware spec
+        msg = can.Message(
+            arbitration_id=0xC0FFEE, data=[0, 25, 0, 1, 3, 1, 4, 1], is_extended_id=True
+        )
+        
+        try:
+            self.can_bus.send(msg)
+            self.get_logger().info(f"Message sent on {self.can_bus.channel_info}")
+        except can.CanError:
+            self.get_logger().error("Message NOT sent")
+
         self.tailscale_connected = activate
     
     def roll_callback(self, msg: Float64) -> None:
