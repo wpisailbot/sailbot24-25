@@ -659,6 +659,7 @@ class ESPComms(LifecycleNode):
         else:
             # Check if we have enough data
             if len(self.last_roll_readings) < 5:
+                self.get_logger().info("no enough data")
                 return
             
             current_time, current_roll = self.last_roll_readings[-1]
@@ -678,6 +679,7 @@ class ESPComms(LifecycleNode):
                 current_direction = -1  # Port
             else:
                 current_direction = 0  # Neutral
+            self.get_logger().info(f"current direction: {current_direction}")
 
             # if current != 0, and different directions, then we crossed zero.
             crossed_zero = (current_direction != 0 and self.last_roll_direction != current_direction)
@@ -728,10 +730,10 @@ class ESPComms(LifecycleNode):
             recent_small_oscillation_count = len(self.last_small_oscillation_times)
             if recent_oscillation_count >= self.oscillation_count_threshold:
                 should_activate = True
-            
             if recent_small_oscillation_count < self.oscillation_count_threshold:
                 should_activate = False
-            
+                
+            self.get_logger().info(f"Damper command: {should_activate}")
             # If state changed, send CAN command
             if should_activate != self.damper_active:
                 self.damper_active = should_activate
