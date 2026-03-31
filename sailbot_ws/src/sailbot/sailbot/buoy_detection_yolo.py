@@ -8,6 +8,7 @@ blob-detection pipeline.
 
 import os
 import time
+from collections import deque
 from typing import List
 
 import cv2
@@ -33,6 +34,13 @@ from sailbot.buoy_detection import (
     geodetic_to_enu,
 )
 from sailbot_msgs.msg import AnnotatedImage, BuoyDetectionStamped, BuoyTypeInfo, CVParameters
+
+# ---------------------------------------------------------------------
+# Detection output stabilization (clearly configurable constants)
+# ---------------------------------------------------------------------
+RUNNING_MEDIAN_WINDOW_SIZE = 11
+RUNNING_MEDIAN_UPDATE_THRESHOLD_METERS = 0.5
+FORCED_PUBLISH_INTERVAL_SECONDS = 1.0
 
 
 # -----------------------------------------------------------------------------
@@ -100,6 +108,9 @@ class BuoyDetectionYOLO(Node):
     def __init__(self):
         super().__init__("object_detection_node")
         self.bridge = CvBridge()
+        self.track_position_windows = {}
+        self.track_last_published_enu = {}
+        self.track_last_published_time = {}
 
         self._init_default_buoy_types()
         self.set_parameters()
@@ -278,19 +289,64 @@ class BuoyDetectionYOLO(Node):
         self.tracks = [
             track for track in self.tracks if current_time - track.last_update_time <= self.buoy_detection_lifetime_seconds
         ]
+        active_track_ids = {track.id for track in self.tracks}
+        self.track_position_windows = {
+            track_id: window
+            for track_id, window in self.track_position_windows.items()
+            if track_id in active_track_ids
+        }
+        self.track_last_published_enu = {
+            track_id: enu
+            for track_id, enu in self.track_last_published_enu.items()
+            if track_id in active_track_ids
+        }
+        self.track_last_published_time = {
+            track_id: published_time
+            for track_id, published_time in self.track_last_published_time.items()
+            if track_id in active_track_ids
+        }
 
     def publish_tracks(self, header: Header) -> None:
         for track in self.tracks:
             if track.time_since_update != 0:
                 continue
+
             enu_position = track.get_position()
-            lat, lon = enu_to_geodetic(enu_position[0], enu_position[1])
+            window = self.track_position_windows.setdefault(track.id, deque(maxlen=RUNNING_MEDIAN_WINDOW_SIZE))
+            window.append((float(enu_position[0]), float(enu_position[1])))
+
+            # Preserve existing behavior until the rolling median window is populated.
+            publish_enu = (float(enu_position[0]), float(enu_position[1]))
+            if len(window) >= RUNNING_MEDIAN_WINDOW_SIZE:
+                median_enu = (
+                    float(np.median([pos[0] for pos in window])),
+                    float(np.median([pos[1] for pos in window])),
+                )
+                last_published_enu = self.track_last_published_enu.get(track.id)
+                last_published_time = self.track_last_published_time.get(track.id)
+                if last_published_enu is not None:
+                    publish_error_meters = float(
+                        np.linalg.norm(np.array(median_enu) - np.array(last_published_enu))
+                    )
+                    time_since_last_publish = (
+                        float("inf") if last_published_time is None else time.time() - last_published_time
+                    )
+                    if (
+                        publish_error_meters <= RUNNING_MEDIAN_UPDATE_THRESHOLD_METERS
+                        and time_since_last_publish < FORCED_PUBLISH_INTERVAL_SECONDS
+                    ):
+                        continue
+                publish_enu = median_enu
+
+            lat, lon = enu_to_geodetic(publish_enu[0], publish_enu[1])
             detection = BuoyDetectionStamped()
             detection.header = header
             detection.position.latitude = lat
             detection.position.longitude = lon
             detection.id = track.id
             self.buoy_position_publisher.publish(detection)
+            self.track_last_published_enu[track.id] = publish_enu
+            self.track_last_published_time[track.id] = time.time()
 
     def associate_detections_to_tracks(self, tracks, detections_enu, max_distance: float):
         if len(tracks) == 0:
