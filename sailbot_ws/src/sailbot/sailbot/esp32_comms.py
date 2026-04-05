@@ -62,6 +62,24 @@ class ESPComms(LifecycleNode):
     :ivar rudder_auto: Indicates if the rudder is in automatic mode.
     :ivar battery_ok: Status of the Jetson battery, indicating if it's within acceptable levels.
     """
+
+
+    # damper CAN bus tracking variables
+    can_bus = None
+    last_roll_readings = []
+    max_roll_samples = 30  
+    damper_active = False
+
+    last_roll_values_timeout = 10.0
+    oscillation_threshold_deg = 10.0
+    small_oscillation_threshold_deg = 5.0 
+    oscillation_count_threshold = 5
+    oscillation_time_window = 8.0
+    last_oscillation_times = []
+    last_small_oscillation_times = []  
+    last_roll_direction = 0           # -1 = port, 0 = neutral, 1 = starboard
+    speed = 0.0
+
     # Wingsail LED display parameters
     status_timer: Optional[Timer] = None
     tailscale_connected = False
@@ -154,7 +172,11 @@ class ESPComms(LifecycleNode):
                 10
             )
         
+        self.roll_subscription = self.create_subscription(Float64, '/airmar_data/roll',self.roll_callback, 10)
+        self.speed_subscription = self.create_subscription(Float64, '/airmar_data/speed_knots',self.speed_callback, 10)
+
         
+        self.damper_check_timer = self.create_timer(0.5,self.damper_check_callback)
 
         #reset ESP32 in case it stopped working from brownout
         esp32_ports = find_esp32_serial_ports()
@@ -200,11 +222,6 @@ class ESPComms(LifecycleNode):
             self.current_path_callback,
             10)
         
-        self.roll_subscription = self.create_subscription(
-            Float64,
-            'airmar_data/roll',
-            self.roll_callback,
-            10)
         
         self.request_tack_subscription = self.create_subscription(
             Empty,
@@ -600,6 +617,100 @@ class ESPComms(LifecycleNode):
         }
         message_string = json.dumps(message)+'\n'
         self.ser.write(message_string.encode())
+
+    def damper_check_callback(self):
+        """Check if damper should activate based on IMU data"""
+        if self.speed > 10.0:
+            self.damper_active = False
+            self.send_damper_can_command(False)
+            return
+        else:
+            # Check if we have enough data
+            if len(self.last_roll_readings) < 5:
+                self.get_logger().info("no enough data")
+                return
+            
+            current_time, current_roll = self.last_roll_readings[-1]
+
+            # Clean up old readings (remove values older than timeout)
+            cutoff_time = current_time - self.last_roll_values_timeout
+            self.last_roll_readings = [
+                (t, v) for t, v in self.last_roll_readings 
+                if t >= cutoff_time
+            ]
+
+            roll_values = [v for t, v in self.last_roll_readings]
+            neutral_zone = 1.0  # degrees
+            if current_roll > neutral_zone:
+                current_direction = 1  # Starboard
+            elif current_roll < -neutral_zone:
+                current_direction = -1  # Port
+            else:
+                current_direction = 0  # Neutral
+            # self.get_logger().info(f"current direction: {current_direction}")
+
+            # if current != 0, and different directions, then we crossed zero.
+            crossed_zero = (current_direction != 0 and self.last_roll_direction != current_direction)
+
+            if crossed_zero:
+                # Find peak from previous direction
+                if self.last_roll_direction == 1:
+                    peak = max(roll_values)  # Was starboard, find max
+                elif self.last_roll_direction == -1:
+                    peak = min(roll_values)
+                else:  # last_roll_direction == 0 (first crossing)
+                    # Use most extreme value (furthest from 0)
+                    peak = max(roll_values, key=abs)
+                
+                # Calculate amplitude
+                amplitude = abs(peak - current_roll)
+                
+                # Check if amplitude is large enough
+                if amplitude >= self.oscillation_threshold_deg:
+                    self.last_oscillation_times.append(current_time)
+                    # self.get_logger().info(f"✓ Oscillation detected! Amplitude: {amplitude:.1f}°")
+                
+                # Check if it's a SMALL oscillation
+                elif amplitude >= self.small_oscillation_threshold_deg:
+                    self.last_small_oscillation_times.append(current_time)
+                    # self.get_logger().info(
+                    #     f"🟡 Small oscillation. Amplitude: {amplitude:.1f}° ")
+                
+
+            if current_direction != 0:
+                # update direction
+                self.last_roll_direction = current_direction
+            
+            # Clean up old oscillations
+            self.last_oscillation_times = [
+                t for t in self.last_oscillation_times 
+                if (current_time - t) <= self.oscillation_time_window
+            ]
+
+            self.last_small_oscillation_times = [
+                t for t in self.last_small_oscillation_times 
+                if (current_time - t) <= self.small_oscillation_time_window
+            ]
+
+            # should_activate = False 
+            recent_oscillation_count = len(self.last_oscillation_times)
+            recent_small_oscillation_count = len(self.last_small_oscillation_times)
+            if recent_oscillation_count >= self.oscillation_count_threshold:
+                should_activate = True
+            if recent_small_oscillation_count < self.oscillation_count_threshold:
+                should_activate = False
+
+            # self.get_logger().info(f"Damper command: {should_activate}")
+            # If state changed, send CAN command
+            if should_activate != self.damper_active:
+                self.damper_active = should_activate
+                self.send_damper_can_command(should_activate)
+
+    def send_damper_can_command():
+        return
+    
+    def speed_callback(self, msg: Float64):
+        self.speed = msg.data
     
     def roll_callback(self, msg: Float64) -> None:
         msg = {
