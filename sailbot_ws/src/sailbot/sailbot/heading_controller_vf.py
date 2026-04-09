@@ -578,12 +578,15 @@ class HeadingController(LifecycleNode):
         self.rudder_overshoot_bias = msg.data
 
     def heading_error_scale_callback(self, msg: Float64) -> None:
+        self.get_logger().info(f"Heading error callback!!!: \n{msg}")
         self.heading_error_scale = msg.data
 
     def rate_of_change_scale_callback(self, msg: Float64) -> None:
+        self.get_logger().info(f"ROT callback!!!: \n{msg}")
         self.rate_of_change_scale = msg.data
 
     def cte_scale_callback(self, msg: Float64) -> None:
+        self.get_logger().info(f"CTE callback!!!: \n{msg}")
         self.cte_scale = msg.data
     
     def needs_to_tack(self, boat_heading, target_heading, wind_direction) -> bool:
