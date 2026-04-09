@@ -270,6 +270,10 @@ class NetworkComms(LifecycleNode):
         self.rudder_adjustment_scale_publisher = self.create_lifecycle_publisher(Float64, 'rudder_adjustment_scale', 10)
         self.rudder_overshoot_bias_publisher = self.create_lifecycle_publisher(Float64, 'rudder_overshoot_bias', 10)
 
+        self.heading_error_scale_publisher = self.create_lifecycle_publisher(Float64, 'heading_error_scale', 10)
+        self.cross_track_error_scale_publisher = self.create_lifecycle_publisher(Float64, 'cte_scale', 10)
+        self.rate_of_change_scale_publisher = self.create_lifecycle_publisher(Float64, 'rate_of_change_scale', 10)
+
         self.request_tack_publisher = self.create_lifecycle_publisher(Empty, 'request_tack', 10)
 
         self.cv_parameters_publisher = self.create_lifecycle_publisher(CVParameters, 'cv_parameters', 10)
@@ -1072,6 +1076,44 @@ class NetworkComms(LifecycleNode):
         response = control_pb2.ControlResponse()
         response.execution_status = control_pb2.ControlExecutionStatus.CONTROL_EXECUTION_SUCCESS
         return response
+    
+
+     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
+    def ExecuteSetHeadingErrorScaleCommand(self, command: control_pb2.SetHeadingErrorScaleCommand, context):
+        self.get_logger().info("Got heading error scale command")
+
+        msg = Float64()
+        msg.data = command.headingScale
+        self.heading_error_scale_publisher.publish(msg)
+
+        response = control_pb2.ControlResponse()
+        response.execution_status = control_pb2.ControlExecutionStatus.CONTROL_EXECUTION_SUCCESS
+        return response
+    
+    #gRPC function, do not rename unless you change proto defs and recompile gRPC files
+    def ExecuteSetRateOfChangeScaleCommand(self, command: control_pb2.SetRateOfChangeScaleCommand, context):
+        self.get_logger().info("Got rate of change scale command")
+
+        msg = Float64()
+        msg.data = command.roc
+        self.rate_of_change_scale_publisher.publish(msg)
+
+        response = control_pb2.ControlResponse()
+        response.execution_status = control_pb2.ControlExecutionStatus.CONTROL_EXECUTION_SUCCESS
+        return response
+    
+    #gRPC function, do not rename unless you change proto defs and recompile gRPC files
+    def ExecuteSetCrossTrackErrorScaleCommand(self, command: control_pb2.SetCrossTrackErrorScaleCommand, context):
+        self.get_logger().info("Got cross track error scale command")
+
+        msg = Float64()
+        msg.data = command.crossTrackErrorScale
+        self.cross_track_error_scale_publisher.publish(msg)
+
+        response = control_pb2.ControlResponse()
+        response.execution_status = control_pb2.ControlExecutionStatus.CONTROL_EXECUTION_SUCCESS
+        return response
+    
     
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def ExecuteSetCVParametersCommand(self, command: control_pb2.SetCVParametersCommand, context):        
