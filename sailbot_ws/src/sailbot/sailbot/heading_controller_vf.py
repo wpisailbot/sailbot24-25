@@ -39,7 +39,7 @@ def normalRelativeAngle(angle):
             angle+=TWO_PI
     return angle
 
-# Computes if a given bearing is inside a no-sail zone
+# Computes if a given bearing is inside a no-sail
 def is_in_nogo(bearing_rad, wind_angle_rad, nogo_angle_rad):
 
     #opposite_angle = math.fmod(bearing_rad + math.pi, 2 * math.pi)
@@ -200,6 +200,9 @@ class HeadingController(LifecycleNode):
         self.declare_parameter('sailbot.heading_control.wind_restriction_replan_cutoff_degrees', 30.0)
         self.declare_parameter('sailbot.heading_control.allow_tack', True)
         self.declare_parameter('sailbot.heading_control.max_rudder_change_per_step', 2.0)
+        self.declare_parameter('sailbot.heading_control.heading_error_scale', 1.0)
+        self.declare_parameter('sailbot.heading_control.rate_of_change_scale', 1.0)
+        self.declare_parameter('sailbot.heading_control.cte_scale', 1.0)
 
 
     def get_parameters(self) -> None:
@@ -212,7 +215,9 @@ class HeadingController(LifecycleNode):
         self.allow_tack = self.get_parameter('sailbot.heading_control.allow_tack').get_parameter_value().bool_value
         self.original_allow_tack = self.allow_tack
         self.max_rudder_change_per_step = self.get_parameter('sailbot.heading_control.max_rudder_change_per_step').get_parameter_value().double_value  
-        
+        self.heading_error_scale = self.get_parameter('sailbot.heading_control.heading_error_scale').get_parameter_value().double_value
+        self.rate_of_change_scale = self.get_parameter('sailbot.heading_control.rate_of_change_scale').get_parameter_value().double_value
+        self.cte_scale = self.get_parameter('sailbot.heading_control.cte_scale').get_parameter_value().double_value
     #lifecycle node callbacks
     def on_configure(self, state: State) -> TransitionCallbackReturn:
         self.get_logger().info("In configure")
