@@ -122,6 +122,10 @@ class HeadingController(LifecycleNode):
     - The node must be managed by state_manager
 
     """
+    # fuzzy controller tuning parameters
+    heading_error_scale = 1.0
+    rate_of_change_scale = 1.0
+    cte_scale = 1.0
 
     heading = 0
     leeway_angle = 0
@@ -132,7 +136,8 @@ class HeadingController(LifecycleNode):
     wind_direction_deg = 270
     autonomous_mode = 0
     rudder_angle = 0
-    cross_track_error = 0.0 #Stored and used for Fuzzy Controller
+
+    cross_track_error = 0.0
 
     last_heading_error = 0
 
@@ -273,6 +278,22 @@ class HeadingController(LifecycleNode):
             'rudder_overshoot_bias',
             self.rudder_overshoot_bias_callback,
             10)
+        self.heading_error_scale_subscription = self.create_subscription(
+            Float64, 
+            'heading_error_scale', 
+            self.heading_error_scale_callback, 
+            10)
+        self.rate_of_change_scale_subscription = self.create_subscription(
+            Float64, 
+            'rate_of_change_scale', 
+            self.rate_of_change_scale_callback, 
+            10)
+        self.cte_scale_subscription = self.create_subscription(
+            Float64, 
+            'cte_scale', 
+            self.cte_scale_callback, 
+            10)
+        
         self.autonomous_mode_subscription = self.create_subscription(AutonomousMode, 'autonomous_mode', self.autonomous_mode_callback, 10)
 
         self.request_tack_subscription = self.create_subscription(
@@ -550,6 +571,15 @@ class HeadingController(LifecycleNode):
 
     def rudder_overshoot_bias_callback(self, msg: Float64) -> None:
         self.rudder_overshoot_bias = msg.data
+
+    def heading_error_scale_callback(self, msg: Float64) -> None:
+        self.heading_error_scale = msg.data
+
+    def rate_of_change_scale_callback(self, msg: Float64) -> None:
+        self.rate_of_change_scale = msg.data
+
+    def cte_scale_callback(self, msg: Float64) -> None:
+        self.cte_scale = msg.data
     
     def needs_to_tack(self, boat_heading, target_heading, wind_direction) -> bool:
         """
@@ -815,16 +845,19 @@ class HeadingController(LifecycleNode):
         self.last_heading_error = heading_error
         self.last_rudder_time = current_time
 
-        # clamp heading rate of change for fuzzy controller
-        heading_rate_of_change_clamped = max(-30.0, min(30.0, heading_rate_of_change))
-
-
+        # clamp and scale inputs for fuzzy controller
         try:
-            self.rudder_simulator.input['heading_error'] = heading_error
-            self.rudder_simulator.input['rate_of_change'] = heading_rate_of_change_clamped
-            self.rudder_simulator.input['cross_track_error'] = cte_clamped
+            heading_error_scaled  = max(-180.0, min(180.0, heading_error * self.heading_error_scale))
+            rate_of_change_scaled = max(-30.0,  min(30.0,  heading_rate_of_change * self.rate_of_change_scale))
+            cte_scaled = max(-3.0,   min(3.0,   cte_clamped * self.cte_scale))
+
+            self.rudder_simulator.input['heading_error']    = heading_error_scaled
+            self.rudder_simulator.input['rate_of_change']   = rate_of_change_scaled
+            self.rudder_simulator.input['cross_track_error'] = cte_scaled
             self.rudder_simulator.compute()
             target_rudder_angle = self.rudder_simulator.output['rudder_angle']
+            #logging line
+            self.get_logger().info(f"Fuzzy target: {target_rudder_angle:.2f}, current: {self.rudder_angle:.2f}, HE: {heading_error:.2f}, ROC: {rate_of_change_scaled:.2f}, CTE: {cte_scaled:.2f}")
         except Exception as e:
             self.get_logger().error(f"Fuzzy controller error: {e}")
             return
