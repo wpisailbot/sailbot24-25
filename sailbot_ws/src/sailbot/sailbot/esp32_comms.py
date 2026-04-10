@@ -19,6 +19,8 @@ import traceback
 import serial.tools.list_ports
 import subprocess
 import can  # pip install python-can
+from phoenix6 import hardware, controls, configs
+            
 
 serial_port = '/dev/ttyTHS1'
 baud_rate = 115200 
@@ -66,7 +68,6 @@ class ESPComms(LifecycleNode):
 
 
     # damper CAN bus tracking variables
-    can_bus = None
     last_roll_readings = []
     max_roll_samples = 30  
     damper_active = False
@@ -175,13 +176,40 @@ class ESPComms(LifecycleNode):
             )
 
         # Initialize CAN bus for damper control
-        # RX 143 Tx145
         try:
-            self.can_bus = can.interface.Bus(interface='socketcan', channel='can0', bitrate=500000)
-
-            self.get_logger().info("CAN bus initialized successfully")  
+            
+            DAMPER_MOTOR_ID = 1  # ← Change to your Talon FX CAN ID
+            CAN_BUS = "can0"
+            
+            # Create motor object
+            self.damper_motor = hardware.TalonFX(DAMPER_MOTOR_ID, CAN_BUS)
+            
+            # Base configuration
+            config = configs.TalonFXConfiguration()
+            
+            # IMPORTANT: Set initial neutral mode to COAST (damper OFF by default)
+            config.motor_output.neutral_mode = configs.NeutralModeValue.COAST
+            config.motor_output.inverted = configs.InvertedValue.COUNTER_CLOCKWISE_POSITIVE
+            
+            # Safety: Current limits (important for brake mode)
+            config.current_limits.stator_current_limit = 40.0  # Amps
+            config.current_limits.stator_current_limit_enable = True
+            
+            # Apply initial config
+            status = self.damper_motor.configurator.apply(config, timeout_seconds=0.5)
+            
+            if status.is_ok():
+                self.get_logger().info("✓ Damper motor initialized (COAST mode - damper OFF)")
+            else:
+                self.get_logger().warn(f"⚠️ Damper config warning: {status}")
+            
+            # Create control request to stop motor at 0% output
+            # (Motor will use whatever neutral mode is currently set)
+            self.damper_motor.set_control(controls.DutyCycleOut(0.0))
+            
         except Exception as e:
-            self.get_logger().error(f"Failed to initialize CAN: {e}")
+            self.get_logger().error(f"Failed to initialize damper motor: {e}")
+            self.damper_motor = None
         
         self.roll_subscription = self.create_subscription(Float64, '/airmar_data/roll',self.roll_callback, 10)
         self.speed_subscription = self.create_subscription(Float64, '/airmar_data/speed_knots',self.speed_callback, 10)
@@ -275,12 +303,15 @@ class ESPComms(LifecycleNode):
         self.destroy_subscription(self.tt_control_subscriber)
         self.destroy_subscription(self.tt_angle_subscriber)
         self.destroy_timer(self.heartbeat_timer)
-        self.destroy_timer(self.ballast_timer)
         self.destroy_timer(self.status_timer)
         self.destroy_timer(self.status_check_timer)
         self.destroy_timer(self.damper_check_timer)
-        if self.can_bus is not None:
-            self.can_bus.shutdown()
+        if hasattr(self, 'damper_motor') and self.damper_motor is not None:
+            try:
+                self.damper_motor.set_control(controls.CoastOut())  # ← Explicit COAST
+                self.get_logger().info("✓ Damper set to COAST mode")
+            except:
+                self.get_logger().error("⚠️ Could not stop damper motor!")
         # uncomment when we fix the damper
 
         return TransitionCallbackReturn.SUCCESS
@@ -735,18 +766,27 @@ class ESPComms(LifecycleNode):
                 self.send_damper_can_command(self.damper_active)
     
     def send_damper_can_command(self, switch:bool):
-        
-        msg = can.Message(
-            arbitration_id=0xC0FFEE, data=[0, 25, 0, 1, 3, 1, 4, 1], is_extended_id=True
-        )
+        if not hasattr(self, 'damper_motor') or self.damper_motor is None:
+            self.get_logger().warn("⚠️ Damper motor not initialized!")
+            return
         
         try:
-            self.can_bus.send(msg)
-            self.get_logger().info(f"Message sent on {self.can_bus.channel_info}")
-        except can.CanError:
-            self.get_logger().error("Message NOT sent")
-
-        self.tailscale_connected = True
+            
+            if switch:
+                # Damper ON = Send StaticBrake control
+                # This actively brakes the motor (shorts the windings)
+                brake_request = controls.StaticBrake()
+                self.damper_motor.set_control(brake_request)
+                self.get_logger().info("🟢 DAMPER ON (active brake)")
+            else:
+                # Damper OFF = Send NeutralOut in COAST mode
+                # Motor spins freely with no resistance
+                coast_request = controls.CoastOut()
+                self.damper_motor.set_control(coast_request)
+                self.get_logger().info("🔴 DAMPER OFF (coasting)")
+                
+        except Exception as e:
+            self.get_logger().error(f"❌ Failed to control damper: {e}")
     
     def speed_callback(self, msg: Float64):
         self.speed = msg.data
