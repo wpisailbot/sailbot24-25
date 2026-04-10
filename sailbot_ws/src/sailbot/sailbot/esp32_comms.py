@@ -10,7 +10,7 @@ from rclpy.timer import Timer
 from rclpy.subscription import Subscription
 from time import time as get_time
 
-from std_msgs.msg import Int8, Int16, Empty, Float32, Float64, String
+from std_msgs.msg import Int8, Int16, Empty, Float32, Float64, String, Bool
 from sailbot_msgs.msg import Wind, AutonomousMode, GeoPath, TrimState, BuoyDetectionStamped
 
 import serial
@@ -99,6 +99,7 @@ class ESPComms(LifecycleNode):
     heartbeat_timeout = 5.0  # seconds - if no heartbeat in 5s, node is dead
 
     buoy_detected = False  # Buoy detection flag
+    reach_buoy = False
     last_buoy_detection_time = 0.0
 
     last_winds = []
@@ -172,9 +173,19 @@ class ESPComms(LifecycleNode):
                 lambda msg, name=node_name: self.heartbeat_callback(msg, name),
                 10
             )
+
+        # Initialize CAN bus for damper control
+        # RX 143 Tx145
+        # try:
+        #     self.can_bus = can.interface.Bus(interface='socketcan', channel='vcan0', bitrate=500000)
+
+        #     self.get_logger().info("CAN bus initialized successfully")  
+        # except Exception as e:
+        #     self.get_logger().error(f"Failed to initialize CAN: {e}")
         
-        #self.roll_subscription = self.create_subscription(Float64, '/airmar_data/roll',self.roll_callback, 10)
-        self.speed_subscription = self.create_subscription(Float64, '/airmar_data/speed_knots',self.speed_callback, 10)
+        # #self.roll_subscription = self.create_subscription(Float64, '/airmar_data/roll',self.roll_callback, 10)
+        # self.speed_subscription = self.create_subscription(Float64, '/airmar_data/speed_knots',self.speed_callback, 10)
+        # uncomment this when the fix works
 
         
         # self.damper_check_timer = self.create_timer(0.5,self.damper_check_callback)
@@ -264,7 +275,13 @@ class ESPComms(LifecycleNode):
         self.destroy_subscription(self.tt_control_subscriber)
         self.destroy_subscription(self.tt_angle_subscriber)
         self.destroy_timer(self.heartbeat_timer)
-        self.destroy_timer(self.ballast_timer)
+        # self.destroy_timer(self.ballast_timer)
+        # self.destroy_timer(self.status_timer)
+        # self.destroy_timer(self.status_check_timer)
+        # self.destroy_timer(self.damper_check_timer)
+        # if self.can_bus is not None:
+        #     self.can_bus.shutdown()
+        # uncomment when we fix the damper
 
         return TransitionCallbackReturn.SUCCESS
 
@@ -454,7 +471,7 @@ class ESPComms(LifecycleNode):
 
     # Wingsail LED display helper functions
     def send_system_status(self, tailscale_connected: bool, buoy_detected: bool, 
-                       trim_auto: bool, rudder_auto: bool, battery_ok: bool):
+                       trim_auto: bool, rudder_auto: bool, battery_ok: bool,reach_buoy:bool):
         """Send multiple system status flags to ESP32 in one message"""
         message = {
             "tailscale": tailscale_connected,
@@ -462,6 +479,7 @@ class ESPComms(LifecycleNode):
             "trim_auto": trim_auto,
             "rudder_auto": rudder_auto,
             "battery_ok": battery_ok,
+            "reach_buoy": reach_buoy,
         }
         message_string = json.dumps(message) + '\n'
         self.ser.write(message_string.encode())
@@ -534,6 +552,11 @@ class ESPComms(LifecycleNode):
             f"Lon: {msg.position.longitude:.6f}"
         )
 
+    def reach_buoy_callback(self, msg: Bool):
+        """Called when we reach the buoy"""
+        self.reach_buoy = msg.data
+        # self.get_logger().info(f"Reached buoy: {self.reach_buoy}")
+
     def status_check_callback(self):
         """Periodically check and update system status variables"""
         # Update all global status variables
@@ -557,7 +580,8 @@ class ESPComms(LifecycleNode):
             self.buoy_detected,
             self.trim_auto,
             self.rudder_auto,
-            self.battery_ok
+            self.battery_ok,
+            self.reach_buoy
         )
 
     def rudder_angle_callback(self, msg: Int16) -> None:
@@ -709,6 +733,17 @@ class ESPComms(LifecycleNode):
     '''
     def send_damper_can_command():
         return
+        msg = can.Message(
+            arbitration_id=0xC0FFEE, data=[0, 25, 0, 1, 3, 1, 4, 1], is_extended_id=True
+        )
+        
+        try:
+            self.can_bus.send(msg)
+            self.get_logger().info(f"Message sent on {self.can_bus.channel_info}")
+        except can.CanError:
+            self.get_logger().error("Message NOT sent")
+
+        self.tailscale_connected = True
     
     def speed_callback(self, msg: Float64):
         self.speed = msg.data
@@ -746,10 +781,11 @@ class ESPComms(LifecycleNode):
             
 
     def request_tack_callback(self, msg: Empty) -> None:
-        self.request_tack_override = True
-        if self.request_tack_timer is not None:
-            self.request_tack_timer.cancel()
-        self.request_tack_timer = self.create_timer(self.request_tack_timer_duration, self.request_tack_timer_callback)
+        self.send_damper_can_command()
+        # self.request_tack_override = True
+        # if self.request_tack_timer is not None:
+        #     self.request_tack_timer.cancel()
+        # self.request_tack_timer = self.create_timer(self.request_tack_timer_duration, self.request_tack_timer_callback)
 
     def request_jibe_callback(self, msg: Float64) -> None:
         self.request_jibe_override = True
