@@ -176,17 +176,17 @@ class ESPComms(LifecycleNode):
 
         # Initialize CAN bus for damper control
         # RX 143 Tx145
-        # try:
-        #     self.can_bus = can.interface.Bus(interface='socketcan', channel='vcan0', bitrate=500000)
+        try:
+            self.can_bus = can.interface.Bus(interface='socketcan', channel='can0', bitrate=500000)
 
-        #     self.get_logger().info("CAN bus initialized successfully")  
-        # except Exception as e:
-        #     self.get_logger().error(f"Failed to initialize CAN: {e}")
+            self.get_logger().info("CAN bus initialized successfully")  
+        except Exception as e:
+            self.get_logger().error(f"Failed to initialize CAN: {e}")
         
         self.roll_subscription = self.create_subscription(Float64, '/airmar_data/roll',self.roll_callback, 10)
         self.speed_subscription = self.create_subscription(Float64, '/airmar_data/speed_knots',self.speed_callback, 10)
         # uncomment this when the fix works
-
+        self.reach_buoy_subscription = self.create_subscription(Bool, 'reached_buoy', self.reach_buoy_callback, 10)
         
         self.damper_check_timer = self.create_timer(0.5,self.damper_check_callback)
 
@@ -275,12 +275,12 @@ class ESPComms(LifecycleNode):
         self.destroy_subscription(self.tt_control_subscriber)
         self.destroy_subscription(self.tt_angle_subscriber)
         self.destroy_timer(self.heartbeat_timer)
-        # self.destroy_timer(self.ballast_timer)
-        # self.destroy_timer(self.status_timer)
-        # self.destroy_timer(self.status_check_timer)
-        # self.destroy_timer(self.damper_check_timer)
-        # if self.can_bus is not None:
-        #     self.can_bus.shutdown()
+        self.destroy_timer(self.ballast_timer)
+        self.destroy_timer(self.status_timer)
+        self.destroy_timer(self.status_check_timer)
+        self.destroy_timer(self.damper_check_timer)
+        if self.can_bus is not None:
+            self.can_bus.shutdown()
         # uncomment when we fix the damper
 
         return TransitionCallbackReturn.SUCCESS
@@ -734,7 +734,7 @@ class ESPComms(LifecycleNode):
                 self.damper_active = should_activate
                 self.send_damper_can_command(self.damper_active)
     
-    def send_damper_can_command(self, msg:bool):
+    def send_damper_can_command(self, switch:bool):
         
         msg = can.Message(
             arbitration_id=0xC0FFEE, data=[0, 25, 0, 1, 3, 1, 4, 1], is_extended_id=True
@@ -752,7 +752,7 @@ class ESPComms(LifecycleNode):
         self.speed = msg.data
     
     def roll_callback(self, msg: Float64) -> None:
-        self.get_logger().info(f"Got roll: {msg.data}")
+        # self.get_logger().info(f"Got roll: {msg.data}")
         roll_dict = {
                 "roll": msg.data
         }
