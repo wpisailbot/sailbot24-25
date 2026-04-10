@@ -879,23 +879,23 @@ class NetworkComms(LifecycleNode):
     
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def ExecuteRequestTackCommand(self, command: control_pb2.RequestTackCommand, context):
-        # self.get_logger().info("Received request tack command")
-        self.get_logger().info(f"network_comms file: {__file__}")
-        self.get_logger().info("I am Here!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        yolo_process = subprocess.Popen(
-            ["bash", "-lc", "source /home/sailbot/Downloads/yolobuoyV2-engine-validation/.venv/bin/activate && python3 zed_yolo_viewer.py --headless-log"],
-            cwd="/home/sailbot/Downloads/yolobuoyV2-engine-validation",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-        def _log_pipe(pipe):
-            for line in pipe:
-                self.get_logger().info(line.rstrip())
-        threading.Thread(target=_log_pipe, args=(yolo_process.stdout,), daemon=True).start()
+        self.get_logger().info("Received request tack command")
+        # self.get_logger().info(f"network_comms file: {__file__}")
+        # self.get_logger().info("I am Here!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        # yolo_process = subprocess.Popen(
+        #     ["bash", "-lc", "source /home/sailbot/Downloads/yolobuoyV2-engine-validation/.venv/bin/activate && python3 zed_yolo_viewer.py --headless-log"],
+        #     cwd="/home/sailbot/Downloads/yolobuoyV2-engine-validation",
+        #     stdout=subprocess.PIPE,
+        #     stderr=subprocess.STDOUT,
+        #     text=True,
+        #     bufsize=1,
+        # )
+        # def _log_pipe(pipe):
+        #     for line in pipe:
+        #         self.get_logger().info(line.rstrip())
+        # threading.Thread(target=_log_pipe, args=(yolo_process.stdout,), daemon=True).start()
 
-        # self.request_tack_publisher.publish(Empty())
+        self.request_tack_publisher.publish(Empty())
 
 
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
