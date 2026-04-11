@@ -19,7 +19,7 @@ import traceback
 import serial.tools.list_ports
 import subprocess
 import can  # pip install python-can
-from phoenix6 import hardware, controls, configs
+from phoenix6 import hardware, controls, configs, signals
             
 
 serial_port = '/dev/ttyTHS1'
@@ -188,8 +188,8 @@ class ESPComms(LifecycleNode):
             config = configs.TalonFXConfiguration()
             
             # IMPORTANT: Set initial neutral mode to COAST (damper OFF by default)
-            config.motor_output.neutral_mode = configs.NeutralModeValue.COAST
-            config.motor_output.inverted = configs.InvertedValue.COUNTER_CLOCKWISE_POSITIVE
+            config.motor_output.neutral_mode = signals.NeutralModeValue.COAST
+            config.motor_output.inverted = signals.InvertedValue.COUNTER_CLOCKWISE_POSITIVE
             
             # Safety: Current limits (important for brake mode)
             config.current_limits.stator_current_limit = 40.0  # Amps
@@ -824,7 +824,8 @@ class ESPComms(LifecycleNode):
             
 
     def request_tack_callback(self, msg: Empty) -> None:
-        self.send_damper_can_command(not self.damper_active)
+        self.damper_active = not self.damper_active
+        self.send_damper_can_command(self.damper_active)
         # self.request_tack_override = True
         # if self.request_tack_timer is not None:
         #     self.request_tack_timer.cancel()
