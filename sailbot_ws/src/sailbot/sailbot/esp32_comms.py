@@ -824,8 +824,31 @@ class ESPComms(LifecycleNode):
             
 
     def request_tack_callback(self, msg: Empty) -> None:
+        current_time = get_time()
+    
+        # DEBOUNCE: Ignore if button was pressed recently
+        time_since_last_toggle = current_time - self.last_damper_toggle_time
+        
+        if time_since_last_toggle < self.damper_toggle_debounce_time:
+            self.get_logger().info(
+                f"⏸️ Debouncing: ignoring toggle "
+                f"({time_since_last_toggle:.2f}s since last press, "
+                f"need {self.damper_toggle_debounce_time}s)"
+            )
+            return  # IGNORE THIS PRESS
+        
+        # Update timestamp
+        self.last_damper_toggle_time = current_time
+        
+        # Toggle damper state
         self.damper_active = not self.damper_active
+        
+        # Send command to motor
         self.send_damper_can_command(self.damper_active)
+        
+        # Log action
+        state_str = "ON (BRAKE)" if self.damper_active else "OFF (COAST)"
+        self.get_logger().info(f"🔘 Manual damper toggle: {state_str}")
         # self.request_tack_override = True
         # if self.request_tack_timer is not None:
         #     self.request_tack_timer.cancel()
