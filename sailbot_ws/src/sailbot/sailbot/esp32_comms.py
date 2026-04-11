@@ -71,6 +71,8 @@ class ESPComms(LifecycleNode):
     last_roll_readings = []
     max_roll_samples = 30  
     damper_active = False
+    last_damper_toggle_time = 0.0  
+    damper_toggle_debounce_time = 1.5
 
     last_roll_values_timeout = 10.0
     oscillation_threshold_deg = 10.0
@@ -827,26 +829,26 @@ class ESPComms(LifecycleNode):
         current_time = get_time()
     
         # DEBOUNCE: Ignore if button was pressed recently
-        time_since_last_toggle = current_time - self.last_damper_toggle_time
+        current_time = get_time()
+    
+        # CRITICAL: Update timestamp FIRST (before any checks)
+        time_since_last = current_time - self.last_damper_toggle_time
         
-        if time_since_last_toggle < self.damper_toggle_debounce_time:
+        if time_since_last < self.damper_toggle_debounce_time:
             self.get_logger().info(
-                f"⏸️ Debouncing: ignoring toggle "
-                f"({time_since_last_toggle:.2f}s since last press, "
-                f"need {self.damper_toggle_debounce_time}s)"
+                f"⏸️ Debouncing: ignoring toggle ({time_since_last:.2f}s)"
             )
-            return  # IGNORE THIS PRESS
+            return
         
-        # Update timestamp
+        # IMMEDIATELY update timestamp (before slow operations)
         self.last_damper_toggle_time = current_time
         
-        # Toggle damper state
+        # Toggle state
         self.damper_active = not self.damper_active
         
-        # Send command to motor
+        # Send command (this is slow!)
         self.send_damper_can_command(self.damper_active)
         
-        # Log action
         state_str = "ON (BRAKE)" if self.damper_active else "OFF (COAST)"
         self.get_logger().info(f"🔘 Manual damper toggle: {state_str}")
         # self.request_tack_override = True
