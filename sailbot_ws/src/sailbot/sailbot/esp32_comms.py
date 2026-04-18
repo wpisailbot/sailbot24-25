@@ -70,7 +70,10 @@ class ESPComms(LifecycleNode):
     # damper CAN bus tracking variables
     last_roll_readings = []
     max_roll_samples = 30  
-    damper_active = False
+    # damper_active = False
+
+    # Damper control mode (0=AUTO, 1=MANUAL_ON, 2=MANUAL_OFF)
+    damper_mode = 0  # Start in AUTO mode
     last_damper_toggle_time = 0.0  
     damper_toggle_debounce_time = 1.5
 
@@ -143,6 +146,8 @@ class ESPComms(LifecycleNode):
         self.current_path_subscription: Optional[Subscription]
         self.apparent_wind_subscriber: Optional[Subscription]
         self.roll_subscription: Optional[Subscription]
+        self.speed_subscription: Optional[Subscription]
+        self.damper_mode_subscription: Optional[Subscription]
 
         self.request_tack_subscription: Optional[Subscription]
 
@@ -215,6 +220,7 @@ class ESPComms(LifecycleNode):
         
         self.roll_subscription = self.create_subscription(Float64, '/airmar_data/roll',self.roll_callback, 10)
         self.speed_subscription = self.create_subscription(Float64, '/airmar_data/speed_knots',self.speed_callback, 10)
+        self.damper_mode_subscription = self.create_subscription(Empty, 'damper_mode', self.damper_mode_callback, 10)
         # uncomment this when the fix works
         self.reach_buoy_subscription = self.create_subscription(Bool, 'reached_buoy', self.reach_buoy_callback, 10)
         
@@ -678,6 +684,11 @@ class ESPComms(LifecycleNode):
     
     def damper_check_callback(self):
         """Check if damper should activate based on IMU data"""
+
+        # Only run in AUTO mode (mode 0)
+        if self.damper_mode != 0:
+            return  # Skip - we're in manual mode
+    
         if self.speed > 10.0:
             self.damper_active = False
             self.send_damper_can_command(self.damper_active)
@@ -789,6 +800,39 @@ class ESPComms(LifecycleNode):
                 
         except Exception as e:
             self.get_logger().error(f"❌ Failed to control damper: {e}")
+
+    def damper_mode_callback(self, msg: Empty):
+        """Cycle damper mode: AUTO → MANUAL_ON → MANUAL_OFF → AUTO"""
+    
+        # current_time = get_time()
+        
+        # # Debounce check
+        # time_since_last = current_time - self.last_damper_toggle_time
+        # if time_since_last < self.damper_toggle_debounce_time:
+        #     self.get_logger().info(f"⏸️ Debouncing ({time_since_last:.2f}s)")
+        #     return
+        
+        # self.last_damper_toggle_time = current_time
+        
+        # Cycle to next mode
+        self.damper_mode = (self.damper_mode + 1) % 3
+        
+        if self.damper_mode == 0:
+            # AUTO mode - let oscillation detector control it
+            self.get_logger().info("🤖 Mode: AUTO (oscillation-based)")
+            # Don't send command - let oscillation callback handle it
+            
+        elif self.damper_mode == 1:
+            # MANUAL ON - force damper on
+            self.damper_active = True
+            self.send_damper_can_command(True)
+            self.get_logger().info("🟢 Mode: MANUAL ON (forced brake)")
+            
+        elif self.damper_mode == 2:
+            # MANUAL OFF - force damper off
+            self.damper_active = False
+            self.send_damper_can_command(False)
+            self.get_logger().info("🔴 Mode: MANUAL OFF (forced coast)")
     
     def speed_callback(self, msg: Float64):
         self.speed = msg.data
@@ -826,35 +870,10 @@ class ESPComms(LifecycleNode):
             
 
     def request_tack_callback(self, msg: Empty) -> None:
-        current_time = get_time()
-    
-        # DEBOUNCE: Ignore if button was pressed recently
-        current_time = get_time()
-    
-        # CRITICAL: Update timestamp FIRST (before any checks)
-        time_since_last = current_time - self.last_damper_toggle_time
-        
-        if time_since_last < self.damper_toggle_debounce_time:
-            self.get_logger().info(
-                f"⏸️ Debouncing: ignoring toggle ({time_since_last:.2f}s)"
-            )
-            return
-        
-        # IMMEDIATELY update timestamp (before slow operations)
-        self.last_damper_toggle_time = current_time
-        
-        # Toggle state
-        self.damper_active = not self.damper_active
-        
-        # Send command (this is slow!)
-        self.send_damper_can_command(self.damper_active)
-        
-        state_str = "ON (BRAKE)" if self.damper_active else "OFF (COAST)"
-        self.get_logger().info(f"🔘 Manual damper toggle: {state_str}")
-        # self.request_tack_override = True
-        # if self.request_tack_timer is not None:
-        #     self.request_tack_timer.cancel()
-        # self.request_tack_timer = self.create_timer(self.request_tack_timer_duration, self.request_tack_timer_callback)
+        self.request_tack_override = True
+        if self.request_tack_timer is not None:
+            self.request_tack_timer.cancel()
+        self.request_tack_timer = self.create_timer(self.request_tack_timer_duration, self.request_tack_timer_callback)
 
     def request_jibe_callback(self, msg: Float64) -> None:
         self.request_jibe_override = True
