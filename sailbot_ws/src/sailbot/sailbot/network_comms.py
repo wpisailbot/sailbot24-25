@@ -346,16 +346,17 @@ class NetworkComms(LifecycleNode):
             self.pitch_callback,
             10)
 
-        self.current_path_subscription = self.create_subscription(
-            GeoPath,
-            'current_path',
-            self.current_path_callback,
-            10)
-        self.target_position_subscriber = self.create_subscription(
-            GeoPoint,
-            'target_position',
-            self.target_position_callback,
-            10)
+        #  disabled path sending to the app
+        # self.current_path_subscription = self.create_subscription(
+        #     GeoPath,
+        #     'current_path',
+        #     self.current_path_callback,
+        #     10)
+        # self.target_position_subscriber = self.create_subscription(
+        #     GeoPoint,
+        #     'target_position',
+        #     self.target_position_callback,
+        #     10)
         self.trim_state_subscriber = self.create_subscription(
             TrimState,
             'trim_state',
@@ -387,24 +388,24 @@ class NetworkComms(LifecycleNode):
             self.rudder_angle_callback,
             10
         )
-        self.path_segment_debug_subscriber = self.create_subscription(
-            GeoPathSegment,
-            'current_segment_debug',
-            self.path_segment_debug_callback,
-            10
-        )
-        self.target_heading_debug_subscriber = self.create_subscription(
-            Float64,
-            'target_heading',
-            self.target_heading_debug_callback,
-            10
-        )
-        self.target_track_debug_subscriber = self.create_subscription(
-            Float64,
-            'target_track',
-            self.target_track_debug_callback,
-            10
-        )
+        # self.path_segment_debug_subscriber = self.create_subscription(
+        #     GeoPathSegment,
+        #     'current_segment_debug',
+        #     self.path_segment_debug_callback,
+        #     10
+        # )
+        # self.target_heading_debug_subscriber = self.create_subscription(
+        #     Float64,
+        #     'target_heading',
+        #     self.target_heading_debug_callback,
+        #     10
+        # )
+        # self.target_track_debug_subscriber = self.create_subscription(
+        #     Float64,
+        #     'target_track',
+        #     self.target_track_debug_callback,
+        #     10
+        # )
         self.initial_cv_parameters_subscriber = self.create_subscription(
             CVParameters,
             'initial_cv_parameters',
@@ -899,6 +900,12 @@ class NetworkComms(LifecycleNode):
 
         self.request_tack_publisher.publish(Empty())
 
+     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
+    def ExecuteCycleDamperModeCommand(self, command: control_pb2.CycleDamperModeCommand, context):
+        self.get_logger().info("Received damper mode cycle command")
+
+        self.damper_mode_publisher.publish(Empty())
+
 
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def ExecuteRudderCommand(self, command: control_pb2.RudderCommand, context):
@@ -907,7 +914,7 @@ class NetworkComms(LifecycleNode):
         response.execution_status = control_pb2.ControlExecutionStatus.CONTROL_EXECUTION_SUCCESS
         #rudder commands are inverted radians, map to degrees and invert, divide by 2 for manual control
         degrees = (command.rudder_control_value*(180/math.pi)*-1)/2.0
-        self.get_logger().info(f"degrees: {degrees}")
+        # self.get_logger().info(f"degrees: {degrees}")
         
         msg = Int16()
         msg.data = int(degrees)

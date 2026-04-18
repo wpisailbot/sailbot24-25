@@ -537,7 +537,7 @@ class HeadingController(LifecycleNode):
 
         self.heading = heading_degrees
 
-        self.get_logger().info("Heading: {:.2f} degrees".format(heading_degrees))
+        # self.get_logger().info("Heading: {:.2f} degrees".format(heading_degrees))
 
     def airmar_track_degrees_true_callback(self, msg: Float64) -> None:
         difference = msg.data - self.heading
@@ -786,12 +786,12 @@ class HeadingController(LifecycleNode):
             msg = Int16()
             msg.data = int(0)
             self.rudder_angle_publisher.publish(msg)
-            self.get_logger().info("No target segment")
+            # self.get_logger().info("No target segment")
 
             return
         
         if(self.current_grid_cell is None):
-            self.get_logger().info("Current grid cell is none, cannot operate")
+            # self.get_logger().info("Current grid cell is none, cannot operate")
             return
         
         #self.get_logger().info(f"Current segment: {self.path_segment.start}, {self.path_segment.end}")
@@ -836,7 +836,7 @@ class HeadingController(LifecycleNode):
 
         target_heading_msg = Float64()
         target_heading_msg.data = target_heading
-        self.get_logger().info(f"Target heading: {target_heading}, CTE: {cte_clamped:.2f}")
+        # self.get_logger().info(f"Target heading: {target_heading}, CTE: {cte_clamped:.2f}")
         self.target_heading_debug_publisher.publish(target_heading_msg)
         
         #self.get_logger().info(f"Target heading: {target_heading}")
@@ -865,7 +865,7 @@ class HeadingController(LifecycleNode):
             self.rudder_simulator.compute()
             target_rudder_angle = self.rudder_simulator.output['rudder_angle']
             #logging line
-            self.get_logger().info(f"Fuzzy target: {target_rudder_angle:.2f}, current: {self.rudder_angle:.2f}, HE: {heading_error:.2f}, ROC: {rate_of_change_scaled:.2f}, CTE: {cte_scaled:.2f}")
+            # self.get_logger().info(f"Fuzzy target: {target_rudder_angle:.2f}, current: {self.rudder_angle:.2f}, HE: {heading_error:.2f}, ROC: {rate_of_change_scaled:.2f}, CTE: {cte_scaled:.2f}")
         except Exception as e:
             self.get_logger().error(f"Fuzzy controller error: {e}")
             return

@@ -70,7 +70,7 @@ class ESPComms(LifecycleNode):
     # damper CAN bus tracking variables
     last_roll_readings = []
     max_roll_samples = 30  
-    # damper_active = False
+    damper_active = False
 
     # Damper control mode (0=AUTO, 1=MANUAL_ON, 2=MANUAL_OFF)
     damper_mode = 0  # Start in AUTO mode
@@ -339,11 +339,11 @@ class ESPComms(LifecycleNode):
         if len(msg.points) == 0:
             self.force_neutral_position = True
         else:
-            self.get_logger().info("Valid path received, allowing auto trimtab movement")
+            # self.get_logger().info("Valid path received, allowing auto trimtab movement")
             self.force_neutral_position = False
 
     def autonomous_mode_callback(self, msg: AutonomousMode) -> None:
-        self.get_logger().info(f"Got autonomous mode: {msg.mode}")
+        # self.get_logger().info(f"Got autonomous mode: {msg.mode}")
         if(msg.mode == AutonomousMode.AUTONOMOUS_MODE_NONE):
             message = {
                 "state": "manual",
@@ -444,7 +444,7 @@ class ESPComms(LifecycleNode):
             }
             trim_state_msg.state = TrimState.TRIM_STATE_MAX_LIFT_STARBOARD
             self.last_lift_state = TrimState.TRIM_STATE_MAX_LIFT_STARBOARD
-            self.get_logger().info("Max lift starboard")
+            # self.get_logger().info("Max lift starboard")
         else:
             # clear_winds was crashing trimtab during competition. Didn't have time to debug.
 
@@ -487,7 +487,7 @@ class ESPComms(LifecycleNode):
                 "state": "min_lift"
             }
             trim_state_msg.state = TrimState.TRIM_STATE_MIN_LIFT
-            self.get_logger().info("Force neutral")
+            # self.get_logger().info("Force neutral")
         
         if(msg is not None):
             self.trim_state_debug_publisher.publish(trim_state_msg)
@@ -497,7 +497,7 @@ class ESPComms(LifecycleNode):
             self.get_logger().info("Trim message is None, taking no action")
 
     def tt_angle_callback(self, msg: Int16) -> None:
-        self.get_logger().info("Sending trimtab angle")
+        # self.get_logger().info("Sending trimtab angle")
         angle = msg.data
         this_time = get_time()
         message = {
@@ -670,7 +670,7 @@ class ESPComms(LifecycleNode):
             "rudder_angle": degrees
         }
         message_string = json.dumps(message)+'\n'
-        self.get_logger().info("Attempting Rudder Send")
+        # self.get_logger().info("Attempting Rudder Send")
         self.ser.write(message_string.encode())
 
     def ballast_pwm_callback(self, msg: Int16) -> None:
