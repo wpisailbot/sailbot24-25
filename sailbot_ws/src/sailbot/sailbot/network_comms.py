@@ -276,6 +276,8 @@ class NetworkComms(LifecycleNode):
 
         self.request_tack_publisher = self.create_lifecycle_publisher(Empty, 'request_tack', 10)
 
+        self.damper_mode_publisher = self.create_lifecycle_publisher(Empty, 'damper_mode', 10)
+
         self.cv_parameters_publisher = self.create_lifecycle_publisher(CVParameters, 'cv_parameters', 10)
 
         self.rot_subscription = self.create_subscription(
