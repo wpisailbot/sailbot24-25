@@ -863,18 +863,19 @@ class NetworkComms(LifecycleNode):
 
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def StreamVideo(self, command: video_pb2.VideoRequest, context):
-        #self.do_video_encode = True
-        rate = self.create_rate(10)
-        self.current_video_source = command.videoSource
+        return
+    #     #self.do_video_encode = True
+    #     rate = self.create_rate(10)
+    #     self.current_video_source = command.videoSource
 
-        try:
-            while context.is_active():
-                yield video_pb2.VideoFrame(data=self.last_camera_frame, width=self.last_camera_frame_shape[1], height=self.last_camera_frame_shape[0], timestamp=int(time.time()))
-                rate.sleep()
-        finally:
-            if not context.is_active():
-                #self.do_video_encode = False
-                self.get_logger().info("Video stream was cancelled or client disconnected.")
+    #     try:
+    #         while context.is_active():
+    #             yield video_pb2.VideoFrame(data=self.last_camera_frame, width=self.last_camera_frame_shape[1], height=self.last_camera_frame_shape[0], timestamp=int(time.time()))
+    #             rate.sleep()
+    #     finally:
+    #         if not context.is_active():
+    #             #self.do_video_encode = False
+    #             self.get_logger().info("Video stream was cancelled or client disconnected.")
 
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def ExecuteMarkBuoyCommand(self, command: control_pb2.MarkBuoyCommand, context):
@@ -1189,6 +1190,8 @@ class NetworkComms(LifecycleNode):
         rate = self.create_rate(5)
         try:
             while context.is_active():
+                message_size = self.current_boat_state.ByteSize()
+                self.get_logger().info(f"Boat stat size:{message_size} bytes.")
                 yield self.current_boat_state
                 rate.sleep()
         finally:
