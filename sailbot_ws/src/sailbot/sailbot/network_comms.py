@@ -54,8 +54,6 @@ import traceback
 import types
 from typing import Callable, Any
 import signal
-import subprocess
-import threading
 
 from sailbot_msgs.srv import RestartNode
 
@@ -270,13 +268,7 @@ class NetworkComms(LifecycleNode):
         self.rudder_adjustment_scale_publisher = self.create_lifecycle_publisher(Float64, 'rudder_adjustment_scale', 10)
         self.rudder_overshoot_bias_publisher = self.create_lifecycle_publisher(Float64, 'rudder_overshoot_bias', 10)
 
-        self.heading_error_scale_publisher = self.create_lifecycle_publisher(Float64, 'heading_error_scale', 10)
-        self.cross_track_error_scale_publisher = self.create_lifecycle_publisher(Float64, 'cte_scale', 10)
-        self.rate_of_change_scale_publisher = self.create_lifecycle_publisher(Float64, 'rate_of_change_scale', 10)
-
         self.request_tack_publisher = self.create_lifecycle_publisher(Empty, 'request_tack', 10)
-
-        self.damper_mode_publisher = self.create_lifecycle_publisher(Empty, 'damper_mode', 10)
 
         self.cv_parameters_publisher = self.create_lifecycle_publisher(CVParameters, 'cv_parameters', 10)
 
@@ -346,7 +338,6 @@ class NetworkComms(LifecycleNode):
             self.pitch_callback,
             10)
 
-        #  disabled path sending to the app
         # self.current_path_subscription = self.create_subscription(
         #     GeoPath,
         #     'current_path',
@@ -388,24 +379,24 @@ class NetworkComms(LifecycleNode):
             self.rudder_angle_callback,
             10
         )
-        # self.path_segment_debug_subscriber = self.create_subscription(
-        #     GeoPathSegment,
-        #     'current_segment_debug',
-        #     self.path_segment_debug_callback,
-        #     10
-        # )
-        # self.target_heading_debug_subscriber = self.create_subscription(
-        #     Float64,
-        #     'target_heading',
-        #     self.target_heading_debug_callback,
-        #     10
-        # )
-        # self.target_track_debug_subscriber = self.create_subscription(
-        #     Float64,
-        #     'target_track',
-        #     self.target_track_debug_callback,
-        #     10
-        # )
+        self.path_segment_debug_subscriber = self.create_subscription(
+            GeoPathSegment,
+            'current_segment_debug',
+            self.path_segment_debug_callback,
+            10
+        )
+        self.target_heading_debug_subscriber = self.create_subscription(
+            Float64,
+            'target_heading',
+            self.target_heading_debug_callback,
+            10
+        )
+        self.target_track_debug_subscriber = self.create_subscription(
+            Float64,
+            'target_track',
+            self.target_track_debug_callback,
+            10
+        )
         self.initial_cv_parameters_subscriber = self.create_subscription(
             CVParameters,
             'initial_cv_parameters',
@@ -422,10 +413,10 @@ class NetworkComms(LifecycleNode):
         #initial dummy values, for testing
         # self.current_boat_state.latitude = 42.273822
         # self.current_boat_state.longitude = -71.805967
-        self.current_boat_state.latitude = 42.28096
-        self.current_boat_state.longitude = -71.80765
-        # self.current_boat_state.latitude = 42.84456
-        # self.current_boat_state.longitude = -70.97622
+        # self.current_boat_state.latitude = 42.276842
+        # self.current_boat_state.longitude = -71.756035
+        self.current_boat_state.latitude = 42.84456
+        self.current_boat_state.longitude = -70.97622
 
         self.current_boat_state.current_heading = 0
         self.current_boat_state.track_degrees_true = 0
@@ -864,18 +855,18 @@ class NetworkComms(LifecycleNode):
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def StreamVideo(self, command: video_pb2.VideoRequest, context):
         return
-    #     #self.do_video_encode = True
-    #     rate = self.create_rate(10)
-    #     self.current_video_source = command.videoSource
+        # #self.do_video_encode = True
+        # rate = self.create_rate(10)
+        # self.current_video_source = command.videoSource
 
-    #     try:
-    #         while context.is_active():
-    #             yield video_pb2.VideoFrame(data=self.last_camera_frame, width=self.last_camera_frame_shape[1], height=self.last_camera_frame_shape[0], timestamp=int(time.time()))
-    #             rate.sleep()
-    #     finally:
-    #         if not context.is_active():
-    #             #self.do_video_encode = False
-    #             self.get_logger().info("Video stream was cancelled or client disconnected.")
+        # try:
+        #     while context.is_active():
+        #         yield video_pb2.VideoFrame(data=self.last_camera_frame, width=self.last_camera_frame_shape[1], height=self.last_camera_frame_shape[0], timestamp=int(time.time()))
+        #         rate.sleep()
+        # finally:
+        #     if not context.is_active():
+        #         #self.do_video_encode = False
+        #         self.get_logger().info("Video stream was cancelled or client disconnected.")
 
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def ExecuteMarkBuoyCommand(self, command: control_pb2.MarkBuoyCommand, context):
@@ -884,28 +875,7 @@ class NetworkComms(LifecycleNode):
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def ExecuteRequestTackCommand(self, command: control_pb2.RequestTackCommand, context):
         self.get_logger().info("Received request tack command")
-        # self.get_logger().info(f"network_comms file: {__file__}")
-        # self.get_logger().info("I am Here!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        # yolo_process = subprocess.Popen(
-        #     ["bash", "-lc", "source /home/sailbot/Downloads/yolobuoyV2-engine-validation/.venv/bin/activate && python3 zed_yolo_viewer.py --headless-log"],
-        #     cwd="/home/sailbot/Downloads/yolobuoyV2-engine-validation",
-        #     stdout=subprocess.PIPE,
-        #     stderr=subprocess.STDOUT,
-        #     text=True,
-        #     bufsize=1,
-        # )
-        # def _log_pipe(pipe):
-        #     for line in pipe:
-        #         self.get_logger().info(line.rstrip())
-        # threading.Thread(target=_log_pipe, args=(yolo_process.stdout,), daemon=True).start()
-
         self.request_tack_publisher.publish(Empty())
-
-     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
-    def ExecuteCycleDamperModeCommand(self, command: control_pb2.CycleDamperModeCommand, context):
-        self.get_logger().info("Received damper mode cycle command")
-
-        self.damper_mode_publisher.publish(Empty())
 
 
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
@@ -1015,42 +985,54 @@ class NetworkComms(LifecycleNode):
         self.single_waypoint_publisher.publish(waypoint)
         return response
     
-   #gRPC function, do not rename unless you change proto defs and recompile gRPC files
-    # def ExecuteReplaceWaypointCommand(self, command: control_pb2.ReplaceWaypointCommand, context):
-    #     self.get_logger().info("Attempting replace")
-    #     try:
-    #         self.get_logger().info(f"Replace data: \n{command}")
-    #         response = control_pb2.ControlResponse()
-    #         response.execution_status = control_pb2.ControlExecutionStatus.CONTROL_EXECUTION_SUCCESS
-    #         self.get_logger().info(f"Searching for old")
-    #         for i, waypoint in enumerate(self.current_boat_state.current_waypoints.waypoints):
-    #             #Find old waypoint
-    #             if waypoint.point.latitude == command.old_waypoint.point.latitude and waypoint.point.longitude == command.old_waypoint.point.longitude:
-    #                 self.get_logger().info(f"Old found, replacing")
-    #                 updated_path = [
-    #                     command.new_waypoint if wp == waypoint else wp
-    #                     for wp in self.current_boat_state.current_waypoints.waypoints]
-    #                 self.current_boat_state.current_waypoints.ClearField("waypoints")# = command.new_path
-    #                 self.current_boat_state.current_waypoints.waypoints.extend(updated_path)
-    #             break
-    #         self.get_logger().info(f"Check 1")
-    #         waypoints = [command.new_waypoint, command.old_waypoint]
-    #         waypoints[0] = command.new_waypoint
-    #         waypoints[1] = command.old_waypoint
-    #         self.get_logger().info(f"Check 2")
-    #         if(command.new_waypoint.type == boat_state_pb2.WaypointType.WAYPOINT_TYPE_INTERSECT):
-    #             waypoints[0].type = Waypoint.WAYPOINT_TYPE_INTERSECT
-    #         elif(command.new_waypoint.type == boat_state_pb2.WaypointType.WAYPOINT_TYPE_CIRCLE_RIGHT):
-    #             waypoints[0].type = Waypoint.WAYPOINT_TYPE_CIRCLE_RIGHT
-    #         elif(command.new_waypoint.type == boat_state_pb2.WaypointType.WAYPOINT_TYPE_CIRCLE_LEFT):
-    #             waypoints[0].type = Waypoint.WAYPOINT_TYPE_CIRCLE_LEFT
+#    #gRPC function, do not rename unless you change proto defs and recompile gRPC files
+#     def ExecuteReplaceWaypointCommand(self, command: control_pb2.ReplaceWaypointCommand, context):
+        self.get_logger().info("Attempting replace")
+        try:
+            self.get_logger().info(f"Replace data: \n{command}")
+            response = control_pb2.ControlResponse()
+            response.execution_status = control_pb2.ControlExecutionStatus.CONTROL_EXECUTION_SUCCESS
+            self.get_logger().info(f"Searching for old")
+            for i, waypoint in enumerate(self.current_boat_state.current_waypoints.waypoints):
+                #Find old waypoint
+                if waypoint.point.latitude == command.old_waypoint.point.latitude and waypoint.point.longitude == command.old_waypoint.point.longitude:
+                    self.get_logger().info(f"Old found, replacing")
+                    updated_path = [
+                        command.new_waypoint if wp == waypoint else wp
+                        for wp in self.current_boat_state.current_waypoints.waypoints]
+                    self.current_boat_state.current_waypoints.ClearField("waypoints")# = command.new_path
+                    self.current_boat_state.current_waypoints.waypoints.extend(updated_path)
+                break
+            self.get_logger().info(f"Check 1")
+            waypoints = [command.new_waypoint, command.old_waypoint]
+            waypoints[0] = command.new_waypoint
+            waypoints[1] = command.old_waypoint
+            self.get_logger().info(f"Check 2")
+            if(command.new_waypoint.type == boat_state_pb2.WaypointType.WAYPOINT_TYPE_INTERSECT):
+                waypoints[0].type = Waypoint.WAYPOINT_TYPE_INTERSECT
+            elif(command.new_waypoint.type == boat_state_pb2.WaypointType.WAYPOINT_TYPE_CIRCLE_RIGHT):
+                waypoints[0].type = Waypoint.WAYPOINT_TYPE_CIRCLE_RIGHT
+            elif(command.new_waypoint.type == boat_state_pb2.WaypointType.WAYPOINT_TYPE_CIRCLE_LEFT):
+                waypoints[0].type = Waypoint.WAYPOINT_TYPE_CIRCLE_LEFT
 
-    #         self.get_logger().info("Publishing replacement waypoint")
-    #         self.replace_waypoint_publisher.publish(waypoints)
-    #         return response
-    #     except Exception as e:
-    #         self.get_logger().error(f"Error in ExecuteReplaceWaypointCommand: {str(e)}")
+            self.get_logger().info("Publishing replacement waypoint")
+            self.replace_waypoint_publisher.publish(waypoints)
+            return response
+        except Exception as e:
+            self.get_logger().error(f"Error in ExecuteReplaceWaypointCommand: {str(e)}")
 
+    #gRPC function, do not rename unless you change proto defs and recompile gRPC files
+    def ExecuteCycleDamperModeCommand(self, command: control_pb2.CycleDamperModeCommand, context):
+        return
+    
+    def ExecuteSetHeadingErrorScaleCommand(self, command: control_pb2.SetHeadingErrorScaleCommand, context):
+        return
+    def ExecuteSetRateOfChangeScaleCommand(self, command: control_pb2.SetRateOfChangeScaleCommand, context):
+        return
+    
+    def ExecuteSetCrossTrackErrorScaleCommand(self, command: control_pb2.SetCrossTrackErrorScaleCommand, context):
+        return
+    
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def ExecuteSetVFForwardMagnitudeCommand(self, command: control_pb2.SetVFForwardMagnitudeCommand, context):
         self.get_logger().info("Got VF forward magnitude command")
@@ -1086,44 +1068,6 @@ class NetworkComms(LifecycleNode):
         response = control_pb2.ControlResponse()
         response.execution_status = control_pb2.ControlExecutionStatus.CONTROL_EXECUTION_SUCCESS
         return response
-    
-
-     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
-    def ExecuteSetHeadingErrorScaleCommand(self, command: control_pb2.SetHeadingErrorScaleCommand, context):
-        self.get_logger().info("Got heading error scale command")
-
-        msg = Float64()
-        msg.data = command.headingScale
-        self.heading_error_scale_publisher.publish(msg)
-
-        response = control_pb2.ControlResponse()
-        response.execution_status = control_pb2.ControlExecutionStatus.CONTROL_EXECUTION_SUCCESS
-        return response
-    
-    #gRPC function, do not rename unless you change proto defs and recompile gRPC files
-    def ExecuteSetRateOfChangeScaleCommand(self, command: control_pb2.SetRateOfChangeScaleCommand, context):
-        self.get_logger().info("Got rate of change scale command")
-
-        msg = Float64()
-        msg.data = command.roc
-        self.rate_of_change_scale_publisher.publish(msg)
-
-        response = control_pb2.ControlResponse()
-        response.execution_status = control_pb2.ControlExecutionStatus.CONTROL_EXECUTION_SUCCESS
-        return response
-    
-    #gRPC function, do not rename unless you change proto defs and recompile gRPC files
-    def ExecuteSetCrossTrackErrorScaleCommand(self, command: control_pb2.SetCrossTrackErrorScaleCommand, context):
-        self.get_logger().info("Got cross track error scale command")
-
-        msg = Float64()
-        msg.data = command.crossTrackErrorScale
-        self.cross_track_error_scale_publisher.publish(msg)
-
-        response = control_pb2.ControlResponse()
-        response.execution_status = control_pb2.ControlExecutionStatus.CONTROL_EXECUTION_SUCCESS
-        return response
-    
     
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def ExecuteSetCVParametersCommand(self, command: control_pb2.SetCVParametersCommand, context):        
@@ -1190,8 +1134,6 @@ class NetworkComms(LifecycleNode):
         rate = self.create_rate(5)
         try:
             while context.is_active():
-                message_size = self.current_boat_state.ByteSize()
-                self.get_logger().info(f"Boat stat size:{message_size} bytes.")
                 yield self.current_boat_state
                 rate.sleep()
         finally:
