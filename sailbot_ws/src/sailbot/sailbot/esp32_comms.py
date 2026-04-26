@@ -525,6 +525,7 @@ class ESPComms(LifecycleNode):
 
     
     def check_tailscale(self) -> bool:
+        return
         """Check if Tailscale is connected
         
         Returns:
