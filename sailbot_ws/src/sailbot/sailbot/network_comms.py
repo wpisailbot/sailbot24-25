@@ -627,7 +627,11 @@ class NetworkComms(LifecycleNode):
         
         
         filtered_path.append(path_points[-1])
-        return filtered_path
+        if len(filtered_path) <= 5:
+            return filtered_path
+        else:
+            return filtered_path[:5]
+
 
     def create_lifecycle_callback(self, node_name: str) -> Callable[[Any, TransitionEvent], None]:
         def lifecycle_callback(self, msg: TransitionEvent):
@@ -1222,7 +1226,7 @@ class NetworkComms(LifecycleNode):
     
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def StreamBoatState(self, command: boat_state_pb2.BoatStateRequest, context):
-        rate = self.create_rate(0.5)
+        rate = self.create_rate(5)
         try:
             while context.is_active():
                 message_size = self.current_boat_state.ByteSize()
