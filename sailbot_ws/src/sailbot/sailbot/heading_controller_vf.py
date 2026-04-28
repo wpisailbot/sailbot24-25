@@ -490,7 +490,7 @@ class HeadingController(LifecycleNode):
     def request_tack_timer_callback(self):
         self.allow_tack = self.original_allow_tack
         self.request_tack_override = False
-        self.get_logger().info('Tack timer expired.')
+        # self.get_logger().info('Tack timer expired.')
 
         # Cancel the timer to clean up
         if self.request_tack_timer is not None:
@@ -502,13 +502,13 @@ class HeadingController(LifecycleNode):
             self.path_segment = None
 
     def autonomous_mode_callback(self, msg: AutonomousMode) -> None:
-        self.get_logger().info(f"Got autonomous mode: {msg.mode}")
+        # self.get_logger().info(f"Got autonomous mode: {msg.mode}")
         self.autonomous_mode = msg.mode
         self.rudder_angle = 0 # Reset rudder angle when auto mode changes
 
         #if we're going into a manual rudder mode, reset it to 0 first
         if(msg.mode == AutonomousMode.AUTONOMOUS_MODE_NONE or msg.mode == AutonomousMode.AUTONOMOUS_MODE_TRIMTAB):
-            self.get_logger().info("Resetting rudder angle")
+            # self.get_logger().info("Resetting rudder angle")
             msg = Int16()
             msg.data = int(0)
             self.rudder_angle_publisher.publish(msg)
@@ -808,12 +808,12 @@ class HeadingController(LifecycleNode):
         
         # If that fails, go straight along the segment
         if not math.isfinite(target_track):
-            self.get_logger().warn(f"Vector field failed! Falling back to straight line. p1: {(self.path_segment.start.x, self.path_segment.start.y)}, p2: {(self.path_segment.end.x,self.path_segment.end.y)}")
+            # self.get_logger().warn(f"Vector field failed! Falling back to straight line. p1: {(self.path_segment.start.x, self.path_segment.start.y)}, p2: {(self.path_segment.end.x,self.path_segment.end.y)}")
             grid_direction_vector = self.direction_vector((self.path_segment.start.x, self.path_segment.start.y), (self.path_segment.end.x,self.path_segment.end.y))
             target_track = self.vector_to_heading(grid_direction_vector[0], grid_direction_vector[1])
         # If that fails, just go to segment endpoint. Could bring us upwind, but that's a later problem.
         if not math.isfinite(target_track):
-            self.get_logger().warn(f"Straight line also failed!")
+            # self.get_logger().warn(f"Straight line also failed!")
             grid_direction_vector = self.direction_vector((self.current_grid_cell.x, self.current_grid_cell.y), (self.path_segment.end.x,self.path_segment.end.y))
             target_track = self.vector_to_heading(grid_direction_vector[0], grid_direction_vector[1])
         
@@ -920,7 +920,7 @@ class HeadingController(LifecycleNode):
         try:
             msg.data = int(self.rudder_angle)
         except Exception as e:
-            self.get_logger().error(f"Invalid rudder value: {self.rudder_angle}")
+            # self.get_logger().error(f"Invalid rudder value: {self.rudder_angle}")
             self.rudder_angle = last_rudder_angle
             msg.data = int(self.rudder_angle)
 
