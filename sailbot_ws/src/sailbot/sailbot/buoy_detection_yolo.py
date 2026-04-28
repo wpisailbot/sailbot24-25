@@ -178,7 +178,7 @@ class BuoyDetectionYOLO(Node):
             "VGA": sl.RESOLUTION.VGA,
             "HD720": sl.RESOLUTION.HD720,
             "HD1080": sl.RESOLUTION.HD1080,
-            "HD2K": sl.RESOLUTION.HD2K,t
+            "HD2K": sl.RESOLUTION.HD2K,
         }
         depth_map = {
             "PERFORMANCE": sl.DEPTH_MODE.PERFORMANCE,
