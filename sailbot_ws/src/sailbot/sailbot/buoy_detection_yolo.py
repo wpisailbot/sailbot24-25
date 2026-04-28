@@ -92,8 +92,16 @@ class BuoyDetectionYOLO(Node):
     heading = 0.0
     tracks: List[Track] = []
 
+    # Tune these here to control chronological filtering before track processing.
+    MIN_RECOGNITION_SECONDS = 2.0
+    MIN_RECOGNITION_FRAME_RATIO = 0.5
+
     def __init__(self):
         super().__init__("object_detection_node")
+
+        self.recognition_count_history: list[tuple[float, int]] = []
+        self.recognition_filter_start_time: float | None = None
+        self.recognition_gate_open = False
 
         self.set_parameters()
         self.get_parameters()
@@ -265,6 +273,48 @@ class BuoyDetectionYOLO(Node):
             return None
         return depth_value
 
+    def _recognition_gate_is_open(self, valid_detection_count: int) -> bool:
+        current_time = time.time()
+        if self.recognition_filter_start_time is None:
+            self.recognition_filter_start_time = current_time
+
+        self.recognition_count_history.append((current_time, valid_detection_count))
+
+        window_start = current_time - self.MIN_RECOGNITION_SECONDS
+        self.recognition_count_history = [
+            entry for entry in self.recognition_count_history if entry[0] >= window_start
+        ]
+
+        gate_open = False
+        gate_ratio = 0.0
+        expected_count = 0
+        window_is_mature = current_time - self.recognition_filter_start_time >= self.MIN_RECOGNITION_SECONDS
+
+        if window_is_mature:
+            nonzero_counts = [count for _, count in self.recognition_count_history if count > 0]
+            if nonzero_counts:
+                expected_count = max(1, int(np.median(nonzero_counts)))
+                recognized_frames = sum(
+                    1 for _, count in self.recognition_count_history if count >= expected_count
+                )
+                gate_ratio = recognized_frames / len(self.recognition_count_history)
+                gate_open = gate_ratio >= self.MIN_RECOGNITION_FRAME_RATIO
+
+        if gate_open != self.recognition_gate_open:
+            self.recognition_gate_open = gate_open
+            if gate_open:
+                self.get_logger().info(
+                    "YOLO recognition gate opened "
+                    f"(count>={expected_count}, uptime={gate_ratio:.2f})"
+                )
+            else:
+                self.get_logger().info(
+                    "YOLO recognition gate closed "
+                    f"(count>={expected_count}, uptime={gate_ratio:.2f})"
+                )
+
+        return gate_open and valid_detection_count >= expected_count
+
     def pixel_to_world(self, x_pixel: int, y_pixel: int, depth: float, f_x: float, f_y: float, c_x: float, c_y: float):
         x_norm = (x_pixel - c_x) / f_x
         y_norm = (y_pixel - c_y) / f_y
@@ -292,11 +342,9 @@ class BuoyDetectionYOLO(Node):
             device=self.yolo_device,
             verbose=False,
         )
-        if not results:
-            return
 
         detections_enu = []
-        boxes = results[0].boxes
+        boxes = results[0].boxes if results else None
 
         if boxes is not None and boxes.xyxy is not None and len(boxes.xyxy) > 0:
             xyxy = boxes.xyxy.cpu().numpy()
@@ -320,6 +368,10 @@ class BuoyDetectionYOLO(Node):
                 )
                 latlon = calculate_offset_position(self.latitude, self.longitude, self.heading, world_coords[2], world_coords[0])
                 detections_enu.append(geodetic_to_enu(latlon.latitude, latlon.longitude))
+
+        if not self._recognition_gate_is_open(len(detections_enu)):
+            self.remove_stale_tracks()
+            return
 
         matches, unmatched = self.associate_detections_to_tracks(
             self.tracks, detections_enu, self.max_association_distance_meters
