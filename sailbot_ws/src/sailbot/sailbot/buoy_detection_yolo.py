@@ -32,7 +32,7 @@ from sailbot.buoy_detection import (
     enu_to_geodetic,
     geodetic_to_enu,
 )
-from sailbot_msgs.msg import AnnotatedImage, BuoyDetectionStamped, BuoyTypeInfo, CVParameters
+from sailbot_msgs.msg import AnnotatedImage, BuoyDetectionStamped, BuoyTypeInfo
 
 
 # -----------------------------------------------------------------------------
@@ -42,9 +42,8 @@ from sailbot_msgs.msg import AnnotatedImage, BuoyDetectionStamped, BuoyTypeInfo,
 # while replacing the internals of detection and frame acquisition:
 # - The old node used ROS image/depth topics + blob/HSV segmentation.
 # - This node uses direct ZED SDK capture (`pyzed.sl`) + YOLO TensorRT inference.
-# - Output channels are kept compatible (`buoy_position`, `cv_mask`,
-#   `initial_cv_parameters`, and `cv_parameters` handling) to stay plug-and-play
-#   with existing consumers.
+# - Output channels are kept compatible (`buoy_position`, `cv_mask`) with
+#   existing consumers.
 #
 # Known working command sequence used during integration/testing:
 # 1) cd /home/sailbot/sailbot24-25
@@ -119,18 +118,10 @@ class BuoyDetectionYOLO(Node):
             self.airmar_heading_callback,
             10,
         )
-        self.cv_parameters_subscription = self.create_subscription(
-            CVParameters,
-            "cv_parameters",
-            self.cv_parameters_callback,
-            10,
-        )
 
         self.mask_publisher = self.create_publisher(AnnotatedImage, "cv_mask", 10)
         self.buoy_position_publisher = self.create_publisher(BuoyDetectionStamped, "buoy_position", 10)
-        self.initial_cv_parameters_publisher = self.create_publisher(CVParameters, "initial_cv_parameters", 10)
 
-        # self.publish_initial_cv_parameters()
         self.process_timer = self.create_timer(self.capture_period_seconds, self.capture_and_process)
         self.get_logger().info("YOLO buoy detection setup complete")
 
@@ -151,8 +142,6 @@ class BuoyDetectionYOLO(Node):
         self.buoy_types.append(white_type)
 
     def set_parameters(self) -> None:
-        self.declare_parameter("sailbot.cv.buoy_circularity_threshold", 0.6)
-        self.declare_parameter("sailbot.cv.depth_error_threshold_meters", 3.0)
         self.declare_parameter("sailbot.cv.buoy_detection_lifetime_seconds", 3.0)
 
         self.declare_parameter(
@@ -170,12 +159,6 @@ class BuoyDetectionYOLO(Node):
         self.declare_parameter("sailbot.cv.yolo.zed_depth_mode", "NEURAL")
 
     def get_parameters(self) -> None:
-        self.buoy_circularity_threshold = (
-            self.get_parameter("sailbot.cv.buoy_circularity_threshold").get_parameter_value().double_value
-        )
-        self.depth_error_threshold_meters = (
-            self.get_parameter("sailbot.cv.depth_error_threshold_meters").get_parameter_value().double_value
-        )
         self.buoy_detection_lifetime_seconds = (
             self.get_parameter("sailbot.cv.buoy_detection_lifetime_seconds").get_parameter_value().double_value
         )
@@ -247,31 +230,12 @@ class BuoyDetectionYOLO(Node):
             f"Opened ZED with resolution={self.zed_resolution_name}, depth_mode={self.zed_depth_mode_name}"
         )
 
-    def publish_initial_cv_parameters(self) -> None:
-        initial_parameters = CVParameters()
-        initial_parameters.buoy_types.extend(self.buoy_types)
-        initial_parameters.circularity_threshold = self.buoy_circularity_threshold
-
-        deadline = time.time() + 10.0
-        while self.initial_cv_parameters_publisher.get_subscription_count() < 1 and time.time() < deadline:
-            self.get_logger().info("waiting for cv parameters subscriber...")
-            time.sleep(1)
-
-        self.initial_cv_parameters_publisher.publish(initial_parameters)
-        self.get_logger().info(
-            f"Published initial cv parameters with {self.initial_cv_parameters_publisher.get_subscription_count()} subscribers"
-        )
-
     def airmar_position_callback(self, msg: NavSatFix) -> None:
         self.latitude = msg.latitude
         self.longitude = msg.longitude
 
     def airmar_heading_callback(self, msg: Float64) -> None:
         self.heading = msg.data
-
-    def cv_parameters_callback(self, msg: CVParameters) -> None:
-        self.buoy_types = msg.buoy_types
-        self.buoy_circularity_threshold = msg.circularity_threshold
 
     def remove_stale_tracks(self) -> None:
         current_time = time.time()
