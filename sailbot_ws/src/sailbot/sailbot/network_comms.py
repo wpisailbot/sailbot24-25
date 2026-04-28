@@ -596,6 +596,10 @@ class NetworkComms(LifecycleNode):
 
         #self.get_logger().info(f"length of boatState path is: {len(self.current_boat_state.current_path.points)}")
     def filter_path(self, path_points, angle_threshold):
+        if len(path_points) == 0:
+            return
+        if len(path_points) == 1:
+            return path_points
         
         def get_direction(p1, p2):
             lat_of_1  = math.radians(p1.latitude)
