@@ -362,21 +362,21 @@ class NetworkComms(LifecycleNode):
             'trim_state',
             self.trim_state_callback,
             10)
-        self.camera_color_image_subscriber = self.create_subscription(
-            Image,
-            '/zed/zed_node/rgb/image_rect_color',
-            self.camera_color_image_callback,
-            10)
-        self.camera_depth_image_subscriber = self.create_subscription(
-            Image,
-            '/zed/zed_node/depth/depth_registered',
-            self.camera_depth_image_callback,
-            10)
-        self.camera_mask_image_subscriber = self.create_subscription(
-            AnnotatedImage,
-            'cv_mask',
-            self.camera_mask_image_callback,
-            10)
+        # self.camera_color_image_subscriber = self.create_subscription(
+        #     Image,
+        #     '/zed/zed_node/rgb/image_rect_color',
+        #     self.camera_color_image_callback,
+        #     10)
+        # self.camera_depth_image_subscriber = self.create_subscription(
+        #     Image,
+        #     '/zed/zed_node/depth/depth_registered',
+        #     self.camera_depth_image_callback,
+        #     10)
+        # self.camera_mask_image_subscriber = self.create_subscription(
+        #     AnnotatedImage,
+        #     'cv_mask',
+        #     self.camera_mask_image_callback,
+        #     10)
         self.buoy_position_subscriber = self.create_subscription(
             BuoyDetectionStamped,
             'buoy_position',
@@ -1226,7 +1226,7 @@ class NetworkComms(LifecycleNode):
     
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def StreamBoatState(self, command: boat_state_pb2.BoatStateRequest, context):
-        rate = self.create_rate(5)
+        rate = self.create_rate(1)
         try:
             while context.is_active():
                 message_size = self.current_boat_state.ByteSize()
