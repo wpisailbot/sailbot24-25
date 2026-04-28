@@ -346,17 +346,17 @@ class NetworkComms(LifecycleNode):
             self.pitch_callback,
             10)
 
-        #  disabled path sending to the app
-        # self.current_path_subscription = self.create_subscription(
-        #     GeoPath,
-        #     'current_path',
-        #     self.current_path_callback,
-        #     10)
-        # self.target_position_subscriber = self.create_subscription(
-        #     GeoPoint,
-        #     'target_position',
-        #     self.target_position_callback,
-        #     10)
+        # disabled path sending to the app
+        self.current_path_subscription = self.create_subscription(
+            GeoPath,
+            'current_path',
+            self.current_path_callback,
+            10)
+        self.target_position_subscriber = self.create_subscription(
+            GeoPoint,
+            'target_position',
+            self.target_position_callback,
+            10)
         self.trim_state_subscriber = self.create_subscription(
             TrimState,
             'trim_state',
