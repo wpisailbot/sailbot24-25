@@ -1222,7 +1222,7 @@ class NetworkComms(LifecycleNode):
     
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def StreamBoatState(self, command: boat_state_pb2.BoatStateRequest, context):
-        rate = self.create_rate(5)
+        rate = self.create_rate(1)
         try:
             while context.is_active():
                 message_size = self.current_boat_state.ByteSize()
