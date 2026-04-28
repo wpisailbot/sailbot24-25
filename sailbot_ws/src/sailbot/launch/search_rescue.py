@@ -69,14 +69,14 @@ def generate_launch_description():
         output='screen',
         parameters=[config_file_path]
     )
-    # heading_select_node = LifecycleNode(
-    #     package='sailbot', 
-    #     executable='heading_select', 
-    #     name='heading_select',
-    #     namespace='',
-    #     output='screen',
-    #     parameters=[config_file_path]
-    # )
+    heading_select_node = LifecycleNode(
+        package='sailbot', 
+        executable='heading_select', 
+        name='heading_select',
+        namespace='',
+        output='screen',
+        parameters=[config_file_path]
+    )
     path_follower_node = LifecycleNode(
         package='sailbot', 
         executable='search_rescue_vf', 
