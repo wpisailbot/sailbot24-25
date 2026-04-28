@@ -587,12 +587,43 @@ class NetworkComms(LifecycleNode):
         #self.get_logger().info(f"Updating boat state with new path of length: {len(msg.points)}")
         self.current_boat_state.current_path.ClearField("points")# = command.new_path
         #self.get_logger().info("Cleared old path")
-        for geo_point in msg.points:
+        filtered = self.filter_path(msg.points, 5.0)
+
+        for geo_point in filtered:
             point_msg = boat_state_pb2.Point(latitude=geo_point.latitude, longitude = geo_point.longitude)
             self.current_boat_state.current_path.points.append(point_msg)
         #self.get_logger().info("Added new points")
 
         #self.get_logger().info(f"length of boatState path is: {len(self.current_boat_state.current_path.points)}")
+    def filter_path(self, path_points, angle_threshold):
+        
+        def get_direction(p1, p2):
+            lat_of_1  = math.radians(p1.latitude)
+            lat_of_2  = math.radians(p2.latitude)
+            delta_lon = math.radians(p2.longitude - p1.longitude)
+            x = math.cos(lat_of_2) * math.sin(delta_lon)
+            y = math.cos(lat_of_1) * math.sin(lat_of_2) - math.sin(lat_of_1) * math.cos(lat_of_2) * math.cos(delta_lon)
+            return math.degrees(math.atan2(x, y)) % 360
+        
+        filtered_path = [path_points[0]]
+
+        for i in range(1, len(path_points) - 1):
+            prev = path_points[i - 1]
+            current = path_points[i]
+            next = path_points[i + 1]
+
+            current_direction  = get_direction(prev, current)
+            next_direction = get_direction(current, next)
+
+            difference = abs(current_direction - next_direction)
+            smallest_diff = min(difference, 360 - difference)
+
+            if smallest_diff > angle_threshold:
+                filtered_path.append(current)
+        
+        
+        filtered_path.append(path_points[-1])
+        return filtered_path
 
     def create_lifecycle_callback(self, node_name: str) -> Callable[[Any, TransitionEvent], None]:
         def lifecycle_callback(self, msg: TransitionEvent):
