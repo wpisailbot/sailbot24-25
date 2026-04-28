@@ -245,7 +245,7 @@ class HeadingController(LifecycleNode):
             10)
         self.airmar_heading_subscription = self.create_subscription(
             Float64,
-            'heading',
+            '/airmar_data/heading',
             self.airmar_heading_callback,
             10)
         self.airmar_track_degrees_true_subscription = self.create_subscription(

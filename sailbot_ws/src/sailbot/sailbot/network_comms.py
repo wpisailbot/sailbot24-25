@@ -318,7 +318,7 @@ class NetworkComms(LifecycleNode):
         
         self.heading_subscription = self.create_subscription(
             Float64,
-            'heading',
+            '/airmar_data/heading',
             self.heading_callback,
             10)
         
