@@ -226,6 +226,7 @@ class NetworkComms(LifecycleNode):
         self.current_path_subscription: Optional[Subscription]
         self.target_position_subscriber: Optional[Subscription]
         self.trim_state_subscriber: Optional[Subscription]
+        self.damper_state_subscriber: Optional[Subscription]
         self.camera_image_subscriber: Optional[Subscription]
 
         #receives state updates from other nodes
@@ -361,6 +362,11 @@ class NetworkComms(LifecycleNode):
             TrimState,
             'trim_state',
             self.trim_state_callback,
+            10)
+        self.damper_state_subscriber = self.create_subscription(
+            Int8,
+            'damper_state',
+            self.damper_state_callback,
             10)
         # self.camera_color_image_subscriber = self.create_subscription(
         #     Image,
@@ -582,6 +588,14 @@ class NetworkComms(LifecycleNode):
             self.current_boat_state.current_trim_state = boat_state_pb2.TrimState.TRIM_STATE_MAX_DRAG_STARBOARD
         elif(msg.state == TrimState.TRIM_STATE_MANUAL):
             self.current_boat_state.current_trim_state = boat_state_pb2.TrimState.TRIM_STATE_MANUAL
+
+    def damper_state_callback(self, msg: Int8) -> None:
+        if(msg.data == 0):
+            self.current_boat_state.damperMode = boat_state_pb2.DamperState.DAMPER_AUTO
+        elif(msg.data == 1):
+            self.current_boat_state.damperMode = boat_state_pb2.DamperState.DAMPER_MODE_MANUAL_ON
+        elif(msg.data == 2):
+            self.current_boat_state.damperMode = boat_state_pb2.DamperState.DAMPER_MODE_MANUAL_OFF
         
     def current_path_callback(self, msg: GeoPath) -> None:
         #self.get_logger().info(f"Updating boat state with new path of length: {len(msg.points)}")
@@ -943,9 +957,11 @@ class NetworkComms(LifecycleNode):
      #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def ExecuteCycleDamperModeCommand(self, command: control_pb2.CycleDamperModeCommand, context):
         self.get_logger().info("Received damper mode cycle command")
+        response = control_pb2.ControlResponse()
+        response.execution_status = control_pb2.ControlExecutionStatus.CONTROL_EXECUTION_SUCCESS
 
         self.damper_mode_publisher.publish(Empty())
-
+        return response
 
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def ExecuteRudderCommand(self, command: control_pb2.RudderCommand, context):
