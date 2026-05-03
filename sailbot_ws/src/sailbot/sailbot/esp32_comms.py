@@ -135,6 +135,7 @@ class ESPComms(LifecycleNode):
         self.tt_battery_publisher: Optional[Publisher]
         self.ballast_pos_publisher: Optional[Publisher]
         self.trim_state_debug_publisher: Optional[Publisher]
+        self.damper_state_publisher: Optional[Publisher]
 
         self.error_publisher: Optional[Publisher]
 
@@ -244,6 +245,7 @@ class ESPComms(LifecycleNode):
 
         self.tt_battery_publisher = self.create_lifecycle_publisher(Int8, 'tt_battery', 10)  # Battery level
         self.trim_state_debug_publisher = self.create_lifecycle_publisher(TrimState, 'trim_state', 10)
+        self.damper_state_publisher = self.create_lifecycle_publisher(Int8, 'damper_state', 10)
 
         self.error_publisher = self.create_lifecycle_publisher(String, f'{self.get_name()}/error', 10)
 
@@ -308,6 +310,7 @@ class ESPComms(LifecycleNode):
         self.destroy_lifecycle_publisher(self.tt_battery_publisher)
         self.destroy_lifecycle_publisher(self.ballast_pos_publisher)
         self.destroy_lifecycle_publisher(self.timer_pub)
+        self.destroy_lifecycle_publisher(self.damper_state_publisher)
         self.destroy_subscription(self.tt_control_subscriber)
         self.destroy_subscription(self.tt_angle_subscriber)
         self.destroy_timer(self.heartbeat_timer)
@@ -821,6 +824,7 @@ class ESPComms(LifecycleNode):
         if self.damper_mode == 0:
             # AUTO mode - let oscillation detector control it
             self.get_logger().info("🤖 Mode: AUTO (oscillation-based)")
+            self.damper_state_publisher.publish(Int8(data=0))  # Publish current mode for monitoring
             # Don't send command - let oscillation callback handle it
             
         elif self.damper_mode == 1:
@@ -828,12 +832,13 @@ class ESPComms(LifecycleNode):
             self.damper_active = True
             self.send_damper_can_command(True)
             self.get_logger().info("🟢 Mode: MANUAL ON (forced brake)")
-            
+            self.damper_state_publisher.publish(Int8(data=1))  # Publish current mode for monitoring
         elif self.damper_mode == 2:
             # MANUAL OFF - force damper off
             self.damper_active = False
             self.send_damper_can_command(False)
             self.get_logger().info("🔴 Mode: MANUAL OFF (forced coast)")
+            self.damper_state_publisher.publish(Int8(data=2))  # Publish current mode for monitoring
     
     def speed_callback(self, msg: Float64):
         self.speed = msg.data
