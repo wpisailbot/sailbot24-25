@@ -193,23 +193,23 @@ class ESPComms(LifecycleNode):
             self.damper_motor = hardware.TalonFX(DAMPER_MOTOR_ID, CAN_BUS)
             
             # Base configuration
-            config = configs.TalonFXConfiguration()
+            # config = configs.TalonFXConfiguration()
             
             # IMPORTANT: Set initial neutral mode to COAST (damper OFF by default)
-            config.motor_output.neutral_mode = signals.NeutralModeValue.COAST
-            config.motor_output.inverted = signals.InvertedValue.COUNTER_CLOCKWISE_POSITIVE
+            # config.motor_output.neutral_mode = signals.NeutralModeValue.COAST
+            # config.motor_output.inverted = signals.InvertedValue.COUNTER_CLOCKWISE_POSITIVE
             
             # Safety: Current limits (important for brake mode)
-            config.current_limits.stator_current_limit = 40.0  # Amps
-            config.current_limits.stator_current_limit_enable = True
+            # config.current_limits.stator_current_limit = 40.0  # Amps
+            # config.current_limits.stator_current_limit_enable = True
             
             # Apply initial config
-            status = self.damper_motor.configurator.apply(config, timeout_seconds=0.5)
+            # status = self.damper_motor.configurator.apply(config, timeout_seconds=0.5)
             
-            if status.is_ok():
-                self.get_logger().info("✓ Damper motor initialized (COAST mode - damper OFF)")
-            else:
-                self.get_logger().warn(f"⚠️ Damper config warning: {status}")
+            # if status.is_ok():
+            #     self.get_logger().info(f"✓ Damper motor initialized : {status}")
+            # else:
+            #     self.get_logger().warn(f"⚠️ Damper config warning: {status}")
             
             # Create control request to stop motor at 0% output
             # (Motor will use whatever neutral mode is currently set)
@@ -788,18 +788,24 @@ class ESPComms(LifecycleNode):
             return
         
         try:
-            
+            config = configs.TalonFXConfiguration()
             if switch:
                 # Damper ON = Send StaticBrake control
                 # This actively brakes the motor (shorts the windings)
-                brake_request = controls.StaticBrake()
-                self.damper_motor.set_control(brake_request)
+                # brake_request = controls.StaticBrake()
+                # self.damper_motor.set_control(brake_request)
+                config.motor_output.neutral_mode = signals.NeutralModeValue.BRAKE
+                self.damper_motor.configurator.apply(config)
+
                 self.get_logger().info("🟢 DAMPER ON (active brake)")
             else:
                 # Damper OFF = Send NeutralOut in COAST mode
-                # Motor spins freely with no resistance
-                coast_request = controls.CoastOut()
-                self.damper_motor.set_control(coast_request)
+                # # Motor spins freely with no resistance
+                # coast_request = controls.CoastOut()
+                # self.damper_motor.set_control(coast_request)
+                config.motor_output.neutral_mode = signals.NeutralModeValue.COAST
+                self.damper_motor.configurator.apply(config, timeout_seconds=0.5)
+
                 self.get_logger().info("🔴 DAMPER OFF (coasting)")
                 
         except Exception as e:

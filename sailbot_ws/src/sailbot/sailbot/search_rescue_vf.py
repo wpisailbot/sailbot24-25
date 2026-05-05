@@ -666,7 +666,7 @@ class PathFollower(LifecycleNode):
         # self.get_logger().info("Buoy distance: "+str(dist))
 
         if(dist<2.0):
-            self.get_logger().info("Reached buoy!!!")
+            # self.get_logger().info("Reached buoy!!!")
             bool_msg = Bool()
             bool_msg.data = True
             self.reached_buoy_publisher.publish(bool_msg)

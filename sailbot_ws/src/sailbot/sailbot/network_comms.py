@@ -591,11 +591,11 @@ class NetworkComms(LifecycleNode):
 
     def damper_state_callback(self, msg: Int8) -> None:
         if(msg.data == 0):
-            self.current_boat_state.damperMode = boat_state_pb2.DamperState.DAMPER_AUTO
+            self.current_boat_state.damperMode = boat_state_pb2.DamperMode.DAMPER_AUTO
         elif(msg.data == 1):
-            self.current_boat_state.damperMode = boat_state_pb2.DamperState.DAMPER_MODE_MANUAL_ON
+            self.current_boat_state.damperMode = boat_state_pb2.DamperMode.DAMPER_MODE_MANUAL_ON
         elif(msg.data == 2):
-            self.current_boat_state.damperMode = boat_state_pb2.DamperState.DAMPER_MODE_MANUAL_OFF
+            self.current_boat_state.damperMode = boat_state_pb2.DamperMode.DAMPER_MODE_MANUAL_OFF
         
     def current_path_callback(self, msg: GeoPath) -> None:
         #self.get_logger().info(f"Updating boat state with new path of length: {len(msg.points)}")
@@ -1226,7 +1226,7 @@ class NetworkComms(LifecycleNode):
     #gRPC function, do not rename unless you change proto defs and recompile gRPC files
     def GetCVParameters(self, command: boat_state_pb2.GetCVParametersRequest, context):
         try:
-            self.get_logger().info("Received Get CV Params request")
+            # self.get_logger().info("Received Get CV Params request")
             response = boat_state_pb2.GetCVParametersResponse()
             if(self.current_cv_parameters is not None):
                 self.current_cv_parameters.circularity_threshold = self.circularity_threshold
