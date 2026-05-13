@@ -63,7 +63,7 @@ def generate_launch_description():
     )
     heading_node = LifecycleNode(
         package='sailbot', 
-        executable='heading_controller', 
+        executable='heading_controller_vf', 
         name='heading_controller',
         namespace='',
         output='screen',

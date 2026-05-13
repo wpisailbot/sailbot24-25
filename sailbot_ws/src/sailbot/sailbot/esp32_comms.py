@@ -694,8 +694,9 @@ class ESPComms(LifecycleNode):
             return  # Skip - we're in manual mode
     
         if self.speed > 10.0:
-            self.damper_active = False
-            self.send_damper_can_command(self.damper_active)
+            if not self.damper_active:
+                self.damper_active = False
+                self.send_damper_can_command(self.damper_active)
             return
         else:
             # Check if we have enough data
