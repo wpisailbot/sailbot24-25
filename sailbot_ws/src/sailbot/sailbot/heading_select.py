@@ -46,7 +46,7 @@ class HeadingSelect(Node):
         self.use_camera_heading = self.get_parameter('sailbot.heading_select.use_camera_heading').get_parameter_value().bool_value
 
     def airmar_heading_callback(self, msg: Float64) -> None:
-        self.get_logger().info("recived airmar heading, use camera heading is: " + str(self.use_camera_heading))
+        # self.get_logger().info("recived airmar heading, use camera heading is: " + str(self.use_camera_heading))
         if(self.use_camera_heading == False):
             self.heading = msg.data
             heading_msg = Float64()
