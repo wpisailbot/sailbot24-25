@@ -918,11 +918,11 @@ class HeadingController(LifecycleNode):
         #self.get_logger().info(f"Computed rudder angle: {rudder_angle}")
         msg = Int16()
         try:
-            msg.data = int(self.rudder_angle)
+            msg.data = -int(self.rudder_angle)
         except Exception as e:
             # self.get_logger().error(f"Invalid rudder value: {self.rudder_angle}")
             self.rudder_angle = last_rudder_angle
-            msg.data = int(self.rudder_angle)
+            msg.data = -int(self.rudder_angle)
 
         #self.get_logger().info(f"Rudder angle: {self.rudder_angle}")
 
