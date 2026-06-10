@@ -671,6 +671,10 @@ class PathFollower(LifecycleNode):
             bool_msg = Bool()
             bool_msg.data = True
             self.reached_buoy_publisher.publish(bool_msg)
+        else:
+            bool_msg = Bool()
+            bool_msg.data = False
+            self.reached_buoy_publisher.publish(bool_msg)
 
         if(current_time-self.last_buoy_calculation_time>2.0):
             self.path_to_buoy(msg)
